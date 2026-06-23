@@ -16,4 +16,7 @@ public class Mesa {
 
     @Enumerated(EnumType.STRING)
     private StatusMesa status;
+
+    @Column(nullable = false)
+    private boolean ativo = true;
 }

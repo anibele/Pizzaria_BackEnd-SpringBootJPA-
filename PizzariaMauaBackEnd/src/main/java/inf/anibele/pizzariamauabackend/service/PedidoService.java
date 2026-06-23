@@ -154,11 +154,13 @@ public class PedidoService {
             throw new RuntimeException("Apenas pedidos ABERTOS podem solicitar fechamento. Status atual: " + pedido.getStatus());
         }
 
-        // MODIFICADO: O pedido entra em espera de pagamento para a cozinha/gerência conseguir ler
         pedido.setStatus(StatusPedido.AGUARDANDO_PAGAMENTO);
         pedido.setFormaPagamento(formaPagamento);
 
-        // NOTA: A liberação da mesa foi removida daqui. Ela só será liberada pelo caixa.
+        // CORREÇÃO: Altera o status da mesa de volta para LIVRE no banco de dados imediatamente
+        Mesa mesa = pedido.getMesa();
+        mesa.setStatus(StatusMesa.LIVRE);
+        mesaRepository.save(mesa);
 
         pedido = pedidoRepository.save(pedido);
         return pedidoMapper.toResponseDTO(pedido);
@@ -174,10 +176,8 @@ public class PedidoService {
             throw new RuntimeException("Este pedido não está aguardando pagamento. Status atual: " + pedido.getStatus());
         }
 
-        // Encerra permanentemente o pedido
         pedido.setStatus(StatusPedido.FINALIZADO);
 
-        // Libera a mesa fisicamente no sistema para o próximo cliente
         Mesa mesa = pedido.getMesa();
         mesa.setStatus(StatusMesa.LIVRE);
         mesaRepository.save(mesa);
@@ -188,7 +188,6 @@ public class PedidoService {
 
     // 4. Listar Pedidos da Cozinha (Tanto ABERTO quanto AGUARDANDO_PAGAMENTO)
     public List<PedidoResponseDTO> listarPedidosCozinha() {
-        // MODIFICADO: findByStatusIn permite carregar ambos os estados e alimentar os triggers no front
         return pedidoRepository.findByStatusIn(List.of(StatusPedido.ABERTO, StatusPedido.AGUARDANDO_PAGAMENTO)).stream()
                 .map(pedidoMapper::toResponseDTO)
                 .collect(Collectors.toList());

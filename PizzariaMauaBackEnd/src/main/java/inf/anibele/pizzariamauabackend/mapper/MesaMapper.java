@@ -16,7 +16,8 @@ public class MesaMapper {
         return new MesaResponseDTO(
                 mesa.getId(),
                 mesa.getNumero(),
-                mesa.getStatus()
+                mesa.getStatus(),
+                mesa.isAtivo()
         );
     }
 
@@ -26,8 +27,8 @@ public class MesaMapper {
 
         Mesa mesa = new Mesa();
         mesa.setNumero(dto.numero());
-        // Toda mesa nova cadastrada no sistema começa, por padrão, como LIVRE
         mesa.setStatus(StatusMesa.LIVRE);
+        mesa.setAtivo(true);
 
         return mesa;
     }

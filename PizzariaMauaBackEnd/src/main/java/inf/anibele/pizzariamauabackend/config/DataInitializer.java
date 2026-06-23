@@ -63,6 +63,7 @@ public class DataInitializer {
                     Mesa mesa = new Mesa();
                     mesa.setNumero(i);
                     mesa.setStatus(StatusMesa.LIVRE);
+                    mesa.setAtivo(true);
                     mesas.add(mesa);
                 }
             }

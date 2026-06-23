@@ -5,5 +5,6 @@ import inf.anibele.pizzariamauabackend.model.StatusMesa;
 public record MesaResponseDTO(
         Long id,
         Integer numero,
-        StatusMesa status
+        StatusMesa status,
+        boolean ativo
 ) {}
