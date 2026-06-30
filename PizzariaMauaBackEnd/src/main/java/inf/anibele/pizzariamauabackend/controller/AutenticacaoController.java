@@ -10,6 +10,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.web.bind.annotation.*;
 
 @RestController
+@CrossOrigin(origins = "*")
 @RequestMapping("/auth")
 public class AutenticacaoController {
 
@@ -20,6 +21,7 @@ public class AutenticacaoController {
     private TokenService tokenService;
 
     @PostMapping("/login")
+    @CrossOrigin(origins = "*")
     public ResponseEntity efetuarLogin(@RequestBody DadosLoginDTO dados) {
         var authenticationToken = new UsernamePasswordAuthenticationToken(dados.username(), dados.senha());
 

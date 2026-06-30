@@ -27,8 +27,6 @@ public class Usuario implements UserDetails {
     @Column(nullable = false)
     private RoleName role;
 
-    // --- MÉTODOS OBRIGATÓRIOS DO USERDETAILS ---
-
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         // Converte o seu enum em uma permissão que o Spring entende

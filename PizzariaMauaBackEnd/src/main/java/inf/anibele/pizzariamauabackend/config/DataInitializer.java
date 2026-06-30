@@ -38,6 +38,14 @@ public class DataInitializer {
                 repository.save(cozinha);
             }
 
+            if (repository.findByUsername("caixa1").isEmpty()) {
+                Usuario caixa = new Usuario();
+                caixa.setUsername("caixa1");
+                caixa.setSenha(passwordEncoder.encode("caixa1"));
+                caixa.setRole(RoleName.CAIXA);
+                repository.save(caixa);
+            }
+
             for (int i = 1; i <= 10; i++) {
                 String numero = String.format("%02d", i);
                 String username = "mesa" + numero;

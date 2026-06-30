@@ -3,6 +3,7 @@ package inf.anibele.pizzariamauabackend.dto;
 import inf.anibele.pizzariamauabackend.model.StatusItemPedido;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 public record ItemPedidoResponseDTO(
         Long id,
@@ -10,5 +11,8 @@ public record ItemPedidoResponseDTO(
         String produtoNome,
         Integer quantidade,
         BigDecimal precoUnitario,
-        StatusItemPedido status
+        StatusItemPedido status,
+        LocalDateTime dataHoraInclusao, // Enviando a hora do envio
+        Integer tempoPreparoMinutos,
+        LocalDateTime dataHoraConclusao
 ) {}

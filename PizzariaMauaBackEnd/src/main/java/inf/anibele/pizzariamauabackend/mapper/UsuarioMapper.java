@@ -25,7 +25,7 @@ public class UsuarioMapper {
 
         Usuario usuario = new Usuario();
         usuario.setUsername(dto.username());
-        usuario.setSenha(dto.senha()); // Será criptografada no Service futuramente
+        usuario.setSenha(dto.senha());
         usuario.setRole(dto.role());
 
         return usuario;

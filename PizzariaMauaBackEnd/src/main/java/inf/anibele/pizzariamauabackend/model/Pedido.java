@@ -27,7 +27,6 @@ public class Pedido {
     @Enumerated(EnumType.STRING)
     private StatusPedido status;
 
-    // Relacionamento inverso para conseguirmos buscar os itens a partir do pedido, se necessário
     @OneToMany(mappedBy = "pedido", cascade = CascadeType.ALL)
     private List<ItemPedido> itens;
 }

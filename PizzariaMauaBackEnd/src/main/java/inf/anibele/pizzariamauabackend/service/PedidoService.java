@@ -13,7 +13,9 @@ import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -141,6 +143,11 @@ public class PedidoService {
                 .orElseThrow(() -> new RuntimeException("Item do pedido não encontrado. ID: " + itemId));
 
         item.setStatus(novoStatus);
+
+        if (novoStatus == StatusItemPedido.PRONTO) {
+            item.setDataHoraConclusao(LocalDateTime.now());
+        }
+
         itemPedidoRepository.save(item);
     }
 
@@ -154,13 +161,9 @@ public class PedidoService {
             throw new RuntimeException("Apenas pedidos ABERTOS podem solicitar fechamento. Status atual: " + pedido.getStatus());
         }
 
+        // Muda apenas o pedido para AGUARDANDO_PAGAMENTO. A mesa continua OCUPADA!
         pedido.setStatus(StatusPedido.AGUARDANDO_PAGAMENTO);
         pedido.setFormaPagamento(formaPagamento);
-
-        // CORREÇÃO: Altera o status da mesa de volta para LIVRE no banco de dados imediatamente
-        Mesa mesa = pedido.getMesa();
-        mesa.setStatus(StatusMesa.LIVRE);
-        mesaRepository.save(mesa);
 
         pedido = pedidoRepository.save(pedido);
         return pedidoMapper.toResponseDTO(pedido);
@@ -193,12 +196,34 @@ public class PedidoService {
                 .collect(Collectors.toList());
     }
 
-    // 5. Buscar pedido aberto de uma mesa específica
+    // 5. Buscar pedido ativo de uma mesa específica
     public PedidoResponseDTO buscarPedidoAbertoDaMesa(Integer numeroMesa) {
-        List<Pedido> pedidos = pedidoRepository.findByMesaNumeroAndStatus(numeroMesa, StatusPedido.ABERTO);
+        List<Pedido> pedidos = pedidoRepository.findByMesaNumeroAndStatusIn(
+                numeroMesa,
+                List.of(StatusPedido.ABERTO, StatusPedido.AGUARDANDO_PAGAMENTO)
+        );
         if (pedidos.isEmpty()) {
             throw new RuntimeException("Nenhum pedido em aberto para a mesa " + numeroMesa);
         }
         return pedidoMapper.toResponseDTO(pedidos.get(0));
     }
+
+    // 6. Listar Pedidos Concluídos/Finalizados de uma data específica (Área do Arquivo do Caixa)
+    public List<PedidoResponseDTO> listarPedidosFinalizadosPorData(LocalDate data) {
+        LocalDateTime inicioDia = data.atStartOfDay();
+        LocalDateTime fimDia = data.atTime(LocalTime.MAX);
+
+        return pedidoRepository.findByStatusAndDataHoraBetween(StatusPedido.FINALIZADO, inicioDia, fimDia).stream()
+                .map(pedidoMapper::toResponseDTO)
+                .collect(Collectors.toList());
+    }
+
+    // 7. Obter a soma do faturamento total de pedidos concluídos em uma data específica
+    public BigDecimal obterFaturamentoPorData(LocalDate data) {
+        LocalDateTime inicioDia = data.atStartOfDay();
+        LocalDateTime fimDia = data.atTime(LocalTime.MAX);
+
+        return pedidoRepository.sumFaturamentoFinalizadoByDataHoraBetween(inicioDia, fimDia);
+    }
+
 }

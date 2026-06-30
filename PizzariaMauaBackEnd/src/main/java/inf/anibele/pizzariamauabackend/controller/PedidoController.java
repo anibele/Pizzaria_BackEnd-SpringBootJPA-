@@ -5,10 +5,13 @@ import inf.anibele.pizzariamauabackend.dto.PedidoRequestDTO;
 import inf.anibele.pizzariamauabackend.dto.PedidoResponseDTO;
 import inf.anibele.pizzariamauabackend.model.StatusItemPedido;
 import inf.anibele.pizzariamauabackend.service.PedidoService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -81,4 +84,23 @@ public class PedidoController {
             return ResponseEntity.notFound().build();
         }
     }
+
+    // 6. Listar Pedidos Concluídos de uma Data Específica
+    // Exemplo: GET http://localhost:8080/pedidos/finalizados?data=2026-06-29
+    @GetMapping("/finalizados")
+    public ResponseEntity<List<PedidoResponseDTO>> listarFinalizadosPorData(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data) {
+        List<PedidoResponseDTO> response = pedidoService.listarPedidosFinalizadosPorData(data);
+        return ResponseEntity.ok(response);
+    }
+
+    // 7. Obter Faturamento Total de uma Data Específica
+    // Exemplo: GET http://localhost:8080/pedidos/faturamento?data=2026-06-29
+    @GetMapping("/faturamento")
+    public ResponseEntity<BigDecimal> obterFaturamentoPorData(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data) {
+        BigDecimal faturamento = pedidoService.obterFaturamentoPorData(data);
+        return ResponseEntity.ok(faturamento);
+    }
+
 }
