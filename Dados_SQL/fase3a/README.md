@@ -6,6 +6,7 @@
 
 - `usuario.mesa_id`: BIGINT opcional, FK para `mesa.id`, UNIQUE; sem cascatas.
 - Usuários MESA devem ter vínculo; demais perfis devem manter NULL. O código valida isso na persistência e o script 03 acrescenta a restrição no banco.
+- O CHECK `ck_usuario_mesa_perfil` exige explicitamente `role IS NOT NULL`, independentemente de a coluna já ter NOT NULL. Assim, perfis nulos são rejeitados mesmo em schema nullable, sem depender da aceitação de UNKNOWN pelo MySQL.
 - Uma mesa pode continuar sem credencial. Não há vínculo inverso nem alteração de pedidos.
 - Contas MESA antigas sem vínculo podem autenticar, mas recebem 403 nas operações de mesa/pedido protegidas. JWT, senhas e formato do login não mudaram.
 - Novas credenciais recebem vínculo no cadastro. O seed cria mesas antes dos usuários e vincula somente contas novas; contas antigas e conflitos geram aviso e ficam intactos. D02/D15 não foram corrigidos.

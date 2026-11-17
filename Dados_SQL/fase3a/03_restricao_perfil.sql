@@ -8,4 +8,10 @@ WHERE role IS NULL OR (role = 'MESA' AND mesa_id IS NULL)
 -- Se houver qualquer linha, PARE e resolva por mapeamento explícito aprovado.
 -- Se a constraint já existir, apenas confira SHOW CREATE TABLE usuario.
 ALTER TABLE usuario ADD CONSTRAINT ck_usuario_mesa_perfil
-CHECK ((role = 'MESA' AND mesa_id IS NOT NULL) OR (role <> 'MESA' AND mesa_id IS NULL));
+CHECK (
+    role IS NOT NULL
+    AND (
+        (role = 'MESA' AND mesa_id IS NOT NULL)
+        OR (role <> 'MESA' AND mesa_id IS NULL)
+    )
+);
