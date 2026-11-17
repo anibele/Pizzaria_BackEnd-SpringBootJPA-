@@ -12,6 +12,8 @@ import inf.anibele.pizzariamauabackend.repository.UsuarioRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import inf.anibele.pizzariamauabackend.exception.RecursoNaoEncontradoException;
+import inf.anibele.pizzariamauabackend.exception.ConflitoException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -36,15 +38,12 @@ public class MesaService {
     @Transactional
     public MesaResponseDTO cadastrar(MesaRequestDTO dto) {
         if (mesaRepository.findByNumero(dto.numero()).isPresent()) {
-            throw new RuntimeException("Já existe uma mesa cadastrada com o número: " + dto.numero());
+            throw new ConflitoException("Já existe uma mesa cadastrada com o número: " + dto.numero());
         }
 
         if (dto.criarUsuario()) {
-            if (dto.username() == null || dto.username().isBlank()) {
-                throw new RuntimeException("O nome de usuário não pode ser vazio se a criação de credenciais estiver ativa.");
-            }
             if (usuarioRepository.findByUsername(dto.username()).isPresent()) {
-                throw new RuntimeException("O usuário '" + dto.username() + "' já está em uso no sistema.");
+                throw new ConflitoException("O usuário '" + dto.username() + "' já está em uso no sistema.");
             }
         }
 
@@ -76,14 +75,14 @@ public class MesaService {
 
     public MesaResponseDTO buscarPorNumero(Integer numero) {
         Mesa mesa = mesaRepository.findByNumero(numero)
-                .orElseThrow(() -> new RuntimeException("Mesa não encontrada com o número: " + numero));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
         return mesaMapper.toResponseDTO(mesa);
     }
 
     @Transactional
     public void atualizarStatus(Integer numero, StatusMesa status) {
         Mesa mesa = mesaRepository.findByNumero(numero)
-                .orElseThrow(() -> new RuntimeException("Mesa não encontrada com o número: " + numero));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
 
         mesa.setStatus(status);
         mesaRepository.save(mesa);
@@ -92,7 +91,7 @@ public class MesaService {
     @Transactional
     public void alterarAtivacao(Integer numero, boolean ativo) {
         Mesa mesa = mesaRepository.findByNumero(numero)
-                .orElseThrow(() -> new RuntimeException("Mesa não encontrada com o número: " + numero));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
 
         mesa.setAtivo(ativo);
         mesaRepository.save(mesa);
@@ -101,7 +100,7 @@ public class MesaService {
     @Transactional
     public void excluir(Integer numero) {
         Mesa mesa = mesaRepository.findByNumero(numero)
-                .orElseThrow(() -> new RuntimeException("Mesa não encontrada com o número: " + numero));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
 
         try {
             // Remove a mesa física

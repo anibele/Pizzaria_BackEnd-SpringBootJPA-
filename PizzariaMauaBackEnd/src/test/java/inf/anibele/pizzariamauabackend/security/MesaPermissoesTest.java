@@ -1,6 +1,7 @@
 package inf.anibele.pizzariamauabackend.security;
 
 import inf.anibele.pizzariamauabackend.controller.MesaController;
+import inf.anibele.pizzariamauabackend.exception.ApiExceptionHandler;
 import inf.anibele.pizzariamauabackend.model.RoleName;
 import inf.anibele.pizzariamauabackend.model.Usuario;
 import inf.anibele.pizzariamauabackend.repository.UsuarioRepository;
@@ -99,7 +100,7 @@ class MesaPermissoesTest {
 
     @Configuration
     @EnableWebMvc
-    @Import({SecurityConfigurations.class, SecurityFilter.class, MesaController.class})
+    @Import({SecurityConfigurations.class, SecurityFilter.class, MesaController.class, ApiExceptionHandler.class})
     static class ConfiguracaoTeste {
         @Bean MesaService mesaService() { return mock(MesaService.class); }
         @Bean UsuarioRepository usuarioRepository() { return mock(UsuarioRepository.class); }

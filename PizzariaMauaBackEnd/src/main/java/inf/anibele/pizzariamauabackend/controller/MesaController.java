@@ -4,6 +4,8 @@ import inf.anibele.pizzariamauabackend.dto.MesaRequestDTO;
 import inf.anibele.pizzariamauabackend.dto.MesaResponseDTO;
 import inf.anibele.pizzariamauabackend.model.StatusMesa;
 import inf.anibele.pizzariamauabackend.service.MesaService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,7 +26,7 @@ public class MesaController {
     }
 
     @PostMapping
-    public ResponseEntity<MesaResponseDTO> cadastrar(@RequestBody MesaRequestDTO requestDTO) {
+    public ResponseEntity<MesaResponseDTO> cadastrar(@Valid @RequestBody MesaRequestDTO requestDTO) {
         MesaResponseDTO response = mesaService.cadastrar(requestDTO);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -40,24 +42,24 @@ public class MesaController {
     }
 
     @GetMapping("/{numero}")
-    public ResponseEntity<MesaResponseDTO> buscarPorNumero(@PathVariable Integer numero) {
+    public ResponseEntity<MesaResponseDTO> buscarPorNumero(@Positive @PathVariable Integer numero) {
         return ResponseEntity.ok(mesaService.buscarPorNumero(numero));
     }
 
     @PatchMapping("/{numero}/status")
-    public ResponseEntity<Void> atualizarStatus(@PathVariable Integer numero, @RequestParam StatusMesa status) {
+    public ResponseEntity<Void> atualizarStatus(@Positive @PathVariable Integer numero, @RequestParam StatusMesa status) {
         mesaService.atualizarStatus(numero, status);
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{numero}/ativacao")
-    public ResponseEntity<Void> alterarAtivacao(@PathVariable Integer numero, @RequestParam boolean ativo) {
+    public ResponseEntity<Void> alterarAtivacao(@Positive @PathVariable Integer numero, @RequestParam boolean ativo) {
         mesaService.alterarAtivacao(numero, ativo);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{numero}")
-    public ResponseEntity<Void> excluir(@PathVariable Integer numero) {
+    public ResponseEntity<Void> excluir(@Positive @PathVariable Integer numero) {
         try {
             mesaService.excluir(numero);
             return ResponseEntity.noContent().build();
@@ -66,7 +68,7 @@ public class MesaController {
             mesaService.alterarAtivacao(numero, false);
 
             // Retorna o status 409 (Conflict) com o texto para o Axios/React Query capturar no onError
-            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Não é possível excluir a mesa pois existem registros vinculados.");
         }
     }
 }

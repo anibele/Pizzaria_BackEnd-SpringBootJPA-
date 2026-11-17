@@ -8,6 +8,8 @@ import inf.anibele.pizzariamauabackend.model.Produto;
 import inf.anibele.pizzariamauabackend.repository.ProdutoRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import inf.anibele.pizzariamauabackend.exception.RecursoNaoEncontradoException;
+import inf.anibele.pizzariamauabackend.exception.ConflitoException;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -47,14 +49,14 @@ public class ProdutoService {
     // 4. Buscar um produto específico por ID
     public ProdutoResponseDTO buscarPorId(Long id) {
         Produto produto = produtoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Produto não encontrado com o ID: " + id));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Produto não encontrado com o ID: " + id));
         return produtoMapper.toResponseDTO(produto);
     }
 
     // 5. Editar um produto existente
     public ProdutoResponseDTO editar(Long id, ProdutoRequestDTO dto) {
         Produto produto = produtoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Produto não encontrado com o ID: " + id));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Produto não encontrado com o ID: " + id));
 
         // Atualizando os dados da entidade com os dados que vieram do DTO
         produto.setNome(dto.nome());
@@ -83,7 +85,7 @@ public class ProdutoService {
     // 6. Ativar ou Desativar um produto (controle de exibição)
     public ProdutoResponseDTO alternarStatus(Long id, boolean ativo) {
         Produto produto = produtoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Produto não encontrado com o ID: " + id));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Produto não encontrado com o ID: " + id));
 
         produto.setAtivo(ativo);
         produto = produtoRepository.save(produto);
@@ -93,12 +95,12 @@ public class ProdutoService {
     // 7. Excluir produto (com verificação de integridade referencial)
     public void excluir(Long id) {
         Produto produto = produtoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Produto não encontrado com o ID: " + id));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Produto não encontrado com o ID: " + id));
 
         try {
             produtoRepository.delete(produto);
         } catch (DataIntegrityViolationException e) {
-            throw new RuntimeException("Não é possível excluir definitivamente o produto '"
+            throw new ConflitoException("Não é possível excluir definitivamente o produto '"
                     + produto.getNome()
                     + "' pois ele já está vinculado a pedidos anteriores no sistema. Ação recomendada: desativar o produto.");
         }

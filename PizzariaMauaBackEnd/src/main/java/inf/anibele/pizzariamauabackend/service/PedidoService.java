@@ -12,6 +12,8 @@ import inf.anibele.pizzariamauabackend.repository.ItemPedidoRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import inf.anibele.pizzariamauabackend.exception.RecursoNaoEncontradoException;
+import inf.anibele.pizzariamauabackend.exception.ConflitoException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -50,11 +52,11 @@ public class PedidoService {
     public PedidoResponseDTO abrirPedido(PedidoRequestDTO dto) {
         Map<Long, Produto> produtos = validarItens(dto.itens());
         Mesa mesa = mesaRepository.findByNumero(dto.numeroMesa())
-                .orElseThrow(() -> new RuntimeException("Mesa não encontrada: " + dto.numeroMesa()));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada: " + dto.numeroMesa()));
 
         List<Pedido> pedidosAbertos = pedidoRepository.findByMesaNumeroAndStatus(mesa.getNumero(), StatusPedido.ABERTO);
         if (!pedidosAbertos.isEmpty()) {
-            throw new RuntimeException("A mesa " + mesa.getNumero() + " já possui um pedido em aberto. Adicione itens ao pedido existente.");
+            throw new ConflitoException("A mesa " + mesa.getNumero() + " já possui um pedido em aberto. Adicione itens ao pedido existente.");
         }
 
         Pedido pedido = new Pedido();
@@ -69,7 +71,7 @@ public class PedidoService {
             Produto produto = produtos.get(itemDto.produtoId());
 
             if (produto.getQtdEstoque() < itemDto.quantidade()) {
-                throw new RuntimeException("Estoque insuficiente para o produto: " + produto.getNome());
+                throw new ConflitoException("Estoque insuficiente para o produto: " + produto.getNome());
             }
 
             produto.setQtdEstoque(produto.getQtdEstoque() - itemDto.quantidade());
@@ -103,10 +105,10 @@ public class PedidoService {
     public PedidoResponseDTO adicionarItens(Long pedidoId, List<ItemPedidoRequestDTO> novosItensDto) {
         Map<Long, Produto> produtos = validarItens(novosItensDto);
         Pedido pedido = pedidoRepository.findById(pedidoId)
-                .orElseThrow(() -> new RuntimeException("Pedido não encontrado: " + pedidoId));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
 
         if (pedido.getStatus() != StatusPedido.ABERTO) {
-            throw new RuntimeException("Apenas pedidos ABERTOS podem receber novos itens.");
+            throw new ConflitoException("Apenas pedidos ABERTOS podem receber novos itens.");
         }
 
         BigDecimal faturamentoAdicional = BigDecimal.ZERO;
@@ -115,7 +117,7 @@ public class PedidoService {
             Produto produto = produtos.get(itemDto.produtoId());
 
             if (produto.getQtdEstoque() < itemDto.quantidade()) {
-                throw new RuntimeException("Estoque insuficiente para o produto: " + produto.getNome());
+                throw new ConflitoException("Estoque insuficiente para o produto: " + produto.getNome());
             }
 
             produto.setQtdEstoque(produto.getQtdEstoque() - itemDto.quantidade());
@@ -172,7 +174,7 @@ public class PedidoService {
     @Transactional
     public void atualizarStatusItem(Long itemId, StatusItemPedido novoStatus) {
         ItemPedido item = itemPedidoRepository.findById(itemId)
-                .orElseThrow(() -> new RuntimeException("Item do pedido não encontrado. ID: " + itemId));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Item do pedido não encontrado. ID: " + itemId));
 
         item.setStatus(novoStatus);
 
@@ -187,10 +189,10 @@ public class PedidoService {
     @Transactional
     public PedidoResponseDTO finalizarPedido(Long pedidoId, String formaPagamento) {
         Pedido pedido = pedidoRepository.findById(pedidoId)
-                .orElseThrow(() -> new RuntimeException("Pedido não encontrado: " + pedidoId));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
 
         if (pedido.getStatus() != StatusPedido.ABERTO) {
-            throw new RuntimeException("Apenas pedidos ABERTOS podem solicitar fechamento. Status atual: " + pedido.getStatus());
+            throw new ConflitoException("Apenas pedidos ABERTOS podem solicitar fechamento. Status atual: " + pedido.getStatus());
         }
 
         // Muda apenas o pedido para AGUARDANDO_PAGAMENTO. A mesa continua OCUPADA!
@@ -205,10 +207,10 @@ public class PedidoService {
     @Transactional
     public PedidoResponseDTO confirmarPagamentoEFecharMesa(Long pedidoId) {
         Pedido pedido = pedidoRepository.findById(pedidoId)
-                .orElseThrow(() -> new RuntimeException("Pedido não encontrado: " + pedidoId));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
 
         if (pedido.getStatus() != StatusPedido.AGUARDANDO_PAGAMENTO) {
-            throw new RuntimeException("Este pedido não está aguardando pagamento. Status atual: " + pedido.getStatus());
+            throw new ConflitoException("Este pedido não está aguardando pagamento. Status atual: " + pedido.getStatus());
         }
 
         pedido.setStatus(StatusPedido.FINALIZADO);
@@ -235,7 +237,7 @@ public class PedidoService {
                 List.of(StatusPedido.ABERTO, StatusPedido.AGUARDANDO_PAGAMENTO)
         );
         if (pedidos.isEmpty()) {
-            throw new RuntimeException("Nenhum pedido em aberto para a mesa " + numeroMesa);
+            throw new RecursoNaoEncontradoException("Nenhum pedido em aberto para a mesa " + numeroMesa);
         }
         return pedidoMapper.toResponseDTO(pedidos.get(0));
     }
