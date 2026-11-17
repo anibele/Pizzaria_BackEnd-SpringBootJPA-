@@ -10,14 +10,18 @@ import inf.anibele.pizzariamauabackend.repository.PedidoRepository;
 import inf.anibele.pizzariamauabackend.repository.ProdutoRepository;
 import inf.anibele.pizzariamauabackend.repository.ItemPedidoRepository;
 import jakarta.transaction.Transactional;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -44,6 +48,7 @@ public class PedidoService {
     // 1. Abrir um novo pedido (Cliente sentou e pediu os primeiros itens)
     @Transactional
     public PedidoResponseDTO abrirPedido(PedidoRequestDTO dto) {
+        Map<Long, Produto> produtos = validarItens(dto.itens());
         Mesa mesa = mesaRepository.findByNumero(dto.numeroMesa())
                 .orElseThrow(() -> new RuntimeException("Mesa não encontrada: " + dto.numeroMesa()));
 
@@ -61,8 +66,7 @@ public class PedidoService {
         BigDecimal faturamentoTotal = BigDecimal.ZERO;
 
         for (ItemPedidoRequestDTO itemDto : dto.itens()) {
-            Produto produto = produtoRepository.findByIdAndAtivoTrue(itemDto.produtoId())
-                    .orElseThrow(() -> new RuntimeException("Produto inativo ou não encontrado. ID: " + itemDto.produtoId()));
+            Produto produto = produtos.get(itemDto.produtoId());
 
             if (produto.getQtdEstoque() < itemDto.quantidade()) {
                 throw new RuntimeException("Estoque insuficiente para o produto: " + produto.getNome());
@@ -97,6 +101,7 @@ public class PedidoService {
     // 2. Adicionar mais itens a um pedido já aberto
     @Transactional
     public PedidoResponseDTO adicionarItens(Long pedidoId, List<ItemPedidoRequestDTO> novosItensDto) {
+        Map<Long, Produto> produtos = validarItens(novosItensDto);
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RuntimeException("Pedido não encontrado: " + pedidoId));
 
@@ -107,8 +112,7 @@ public class PedidoService {
         BigDecimal faturamentoAdicional = BigDecimal.ZERO;
 
         for (ItemPedidoRequestDTO itemDto : novosItensDto) {
-            Produto produto = produtoRepository.findByIdAndAtivoTrue(itemDto.produtoId())
-                    .orElseThrow(() -> new RuntimeException("Produto inativo ou não encontrado. ID: " + itemDto.produtoId()));
+            Produto produto = produtos.get(itemDto.produtoId());
 
             if (produto.getQtdEstoque() < itemDto.quantidade()) {
                 throw new RuntimeException("Estoque insuficiente para o produto: " + produto.getNome());
@@ -134,6 +138,34 @@ public class PedidoService {
         pedido = pedidoRepository.save(pedido);
 
         return pedidoMapper.toResponseDTO(pedido);
+    }
+
+    private Map<Long, Produto> validarItens(List<ItemPedidoRequestDTO> itens) {
+        if (itens == null || itens.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe ao menos um item no pedido.");
+        }
+
+        for (ItemPedidoRequestDTO item : itens) {
+            if (item == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A lista de itens não pode conter item nulo.");
+            }
+            if (item.produtoId() == null || item.produtoId() <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe um identificador de produto válido.");
+            }
+            if (item.quantidade() == null || item.quantidade() <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A quantidade deve ser um número inteiro maior que zero.");
+            }
+        }
+
+        Map<Long, Produto> produtos = new HashMap<>();
+        for (ItemPedidoRequestDTO item : itens) {
+            if (!produtos.containsKey(item.produtoId())) {
+                Produto produto = produtoRepository.findByIdAndAtivoTrue(item.produtoId())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Produto inativo ou não encontrado."));
+                produtos.put(item.produtoId(), produto);
+            }
+        }
+        return produtos;
     }
 
     // 2.5. Atualizar Status de um Item Específico na Cozinha

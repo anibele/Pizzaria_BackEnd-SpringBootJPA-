@@ -8,11 +8,14 @@ import inf.anibele.pizzariamauabackend.service.PedidoService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/pedidos")
@@ -23,6 +26,17 @@ public class PedidoController {
 
     public PedidoController(PedidoService pedidoService) {
         this.pedidoService = pedidoService;
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, String>> tratarEntradaInvalida(ResponseStatusException exception) {
+        return ResponseEntity.status(exception.getStatusCode()).body(Map.of("mensagem", exception.getReason()));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> tratarCorpoInvalido() {
+        return ResponseEntity.badRequest().body(Map.of("mensagem",
+                "Envie um JSON válido com identificadores e quantidades inteiras dentro dos limites numéricos."));
     }
 
     // 1. Abrir Novo Pedido (Área do Cliente - Primeiro envio do Tablet)

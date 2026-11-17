@@ -56,11 +56,11 @@ public class SecurityConfigurations {
                     req.requestMatchers(HttpMethod.PUT, "/pedidos/*/itens").hasAnyAuthority("MESA", "GERENTE");
                     req.requestMatchers(HttpMethod.PATCH, "/pedidos/*/finalizar").hasAnyAuthority("MESA", "GERENTE", "CAIXA");
                     req.requestMatchers(HttpMethod.GET, "/pedidos/mesa/*/aberto").hasAnyAuthority("MESA", "GERENTE", "CAIXA");
+                    req.requestMatchers(HttpMethod.GET, "/mesas/status").hasAnyAuthority("GERENTE", "CAIXA");
                     req.requestMatchers(HttpMethod.GET, "/mesas/*").hasAnyAuthority("MESA", "GERENTE", "CAIXA");
 
                     // 4. REGRAS DO CAIXA E GERENTE (Operações de salão e pagamento)
                     req.requestMatchers(HttpMethod.PATCH, "/pedidos/*/confirmar").hasAnyAuthority("CAIXA", "GERENTE");
-                    req.requestMatchers(HttpMethod.GET, "/mesas/status").hasAnyAuthority("GERENTE", "CAIXA");
                     req.requestMatchers(HttpMethod.PATCH, "/mesas/*/status").hasAnyAuthority("GERENTE", "CAIXA");
                     req.requestMatchers(HttpMethod.GET, "/pedidos/finalizados").hasAnyAuthority("CAIXA", "GERENTE");
                     req.requestMatchers(HttpMethod.GET, "/pedidos/faturamento").hasAnyAuthority("CAIXA", "GERENTE");
@@ -76,6 +76,7 @@ public class SecurityConfigurations {
                     req.requestMatchers(HttpMethod.GET, "/api/dashboard/**").hasAuthority("GERENTE");
 
                     req.requestMatchers(HttpMethod.POST, "/mesas").hasAuthority("GERENTE");
+                    req.requestMatchers(HttpMethod.PATCH, "/mesas/*/ativacao").hasAuthority("GERENTE");
                     req.requestMatchers(HttpMethod.DELETE, "/mesas/*").hasAuthority("GERENTE");
 
                     req.requestMatchers("/relatorios/**", "/usuarios/**").hasAuthority("GERENTE");
