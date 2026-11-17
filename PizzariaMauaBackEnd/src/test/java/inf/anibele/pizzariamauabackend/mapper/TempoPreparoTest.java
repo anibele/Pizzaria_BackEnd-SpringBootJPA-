@@ -33,7 +33,9 @@ class TempoPreparoTest {
     @BeforeEach
     void preparar() {
         repository = mock(ProdutoRepository.class);
-        mvc = MockMvcBuilders.standaloneSetup(new ProdutoController(new ProdutoService(repository, new ProdutoMapper())))
+        var service = new ProdutoService(repository, new ProdutoMapper());
+        inf.anibele.pizzariamauabackend.LocksTeste.configurar(service, repository);
+        mvc = MockMvcBuilders.standaloneSetup(new ProdutoController(service))
                 .setControllerAdvice(new ApiExceptionHandler()).build();
     }
 

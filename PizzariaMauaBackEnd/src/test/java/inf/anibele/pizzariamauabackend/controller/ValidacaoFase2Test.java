@@ -57,6 +57,9 @@ class ValidacaoFase2Test {
         MesaService mesaService = new MesaService(mesas, usuarios, encoder, new MesaMapper(), mock(AutorizacaoMesa.class), pedidos);
         PedidoService pedidoService = new PedidoService(pedidos, mesas, produtos, itens,
                 new PedidoMapper(new ItemPedidoMapper()), mock(AutorizacaoMesa.class));
+        inf.anibele.pizzariamauabackend.LocksTeste.configurar(mesaService, mesas, pedidos);
+        inf.anibele.pizzariamauabackend.LocksTeste.configurar(produtoService);
+        inf.anibele.pizzariamauabackend.LocksTeste.configurar(pedidoService, mesas, pedidos, produtos);
         mvc = MockMvcBuilders.standaloneSetup(new ProdutoController(produtoService),
                         new MesaController(mesaService), new PedidoController(pedidoService))
                 .setControllerAdvice(new ApiExceptionHandler()).build();
@@ -237,6 +240,9 @@ class ValidacaoFase2Test {
     void conflitoDeEstadoRetorna409SemSalvar() throws Exception {
         Pedido pedido = new Pedido();
         pedido.setStatus(StatusPedido.FINALIZADO);
+        pedido.setId(7L);
+        Mesa mesa=new Mesa();mesa.setId(1L);mesa.setNumero(1);mesa.setStatus(StatusMesa.OCUPADA);
+        pedido.setMesa(mesa);when(mesas.findByNumero(1)).thenReturn(Optional.of(mesa));
         when(pedidos.findById(7L)).thenReturn(Optional.of(pedido));
         mvc.perform(patch("/pedidos/7/finalizar?formaPagamento=PIX"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.mensagem").isNotEmpty());
@@ -247,11 +253,16 @@ class ValidacaoFase2Test {
     @Test
     void estoqueInsuficienteRetorna409() throws Exception {
         Produto produto = new Produto();
+        produto.setAtivo(true);
+        produto.setId(1L);
         produto.setQtdEstoque(0);
         produto.setNome("Pizza");
         when(produtos.findByIdAndAtivoTrue(1L)).thenReturn(Optional.of(produto));
         Pedido pedido = new Pedido();
         pedido.setStatus(StatusPedido.ABERTO);
+        pedido.setId(7L);
+        Mesa mesa=new Mesa();mesa.setId(1L);mesa.setNumero(1);mesa.setStatus(StatusMesa.OCUPADA);
+        pedido.setMesa(mesa);when(mesas.findByNumero(1)).thenReturn(Optional.of(mesa));
         when(pedidos.findById(7L)).thenReturn(Optional.of(pedido));
         mvc.perform(put("/pedidos/7/itens").contentType(MediaType.APPLICATION_JSON)
                         .content("[{\"produtoId\":1,\"quantidade\":1}]"))

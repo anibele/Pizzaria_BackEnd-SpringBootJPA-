@@ -46,6 +46,7 @@ class PedidoControllerTest {
         itemPedidoRepository = mock(ItemPedidoRepository.class);
         PedidoService service = new PedidoService(pedidoRepository, mesaRepository, produtoRepository,
                 itemPedidoRepository, new PedidoMapper(new ItemPedidoMapper()), mock(AutorizacaoMesa.class));
+        inf.anibele.pizzariamauabackend.LocksTeste.configurar(service, mesaRepository, pedidoRepository, produtoRepository);
         mvc = MockMvcBuilders.standaloneSetup(new PedidoController(service))
                 .setControllerAdvice(new ApiExceptionHandler()).build();
     }

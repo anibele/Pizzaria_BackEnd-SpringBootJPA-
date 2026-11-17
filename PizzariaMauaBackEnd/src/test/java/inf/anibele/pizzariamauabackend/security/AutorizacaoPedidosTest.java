@@ -66,12 +66,15 @@ class AutorizacaoPedidosTest {
         reset(pedidos, mesas, usuarios, produtos, itens, tokens);
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
+        inf.anibele.pizzariamauabackend.LocksTeste.configurar(context.getBean(PedidoService.class), mesas, pedidos, produtos);
+        inf.anibele.pizzariamauabackend.LocksTeste.configurar(context.getBean(MesaService.class));
         mesa1 = mesa(101L, 1);
         mesa2 = mesa(102L, 2);
         pedido1 = pedido(11L, mesa1);
         pedido2 = pedido(22L, mesa2);
         produto = new Produto();
         produto.setId(1L);
+        produto.setAtivo(true);
         produto.setNome("Pizza");
         produto.setPrecoBase(new BigDecimal("50.00"));
         produto.setQtdEstoque(10);
@@ -242,6 +245,7 @@ class AutorizacaoPedidosTest {
     @Import({SecurityConfigurations.class, SecurityFilter.class, AutorizacaoMesa.class,
             PedidoController.class, MesaController.class, ApiExceptionHandler.class})
     static class ConfiguracaoTeste {
+        @Bean jakarta.persistence.EntityManager entityManager() { return mock(jakarta.persistence.EntityManager.class); }
         @Bean PedidoRepository pedidos() { return mock(PedidoRepository.class); }
         @Bean MesaRepository mesas() { return mock(MesaRepository.class); }
         @Bean UsuarioRepository usuarios() { return mock(UsuarioRepository.class); }

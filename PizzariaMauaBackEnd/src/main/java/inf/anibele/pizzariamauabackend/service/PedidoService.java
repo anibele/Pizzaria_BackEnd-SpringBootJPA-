@@ -10,7 +10,10 @@ import inf.anibele.pizzariamauabackend.repository.PedidoRepository;
 import inf.anibele.pizzariamauabackend.repository.ProdutoRepository;
 import inf.anibele.pizzariamauabackend.repository.ItemPedidoRepository;
 import inf.anibele.pizzariamauabackend.security.AutorizacaoMesa;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
+import jakarta.persistence.EntityManager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import inf.anibele.pizzariamauabackend.exception.RecursoNaoEncontradoException;
@@ -29,6 +32,9 @@ import java.util.stream.Collectors;
 
 @Service
 public class PedidoService {
+
+    @Autowired
+    private EntityManager entityManager;
 
     private final PedidoRepository pedidoRepository;
     private final MesaRepository mesaRepository;
@@ -51,13 +57,16 @@ public class PedidoService {
     }
 
     // 1. Abrir um novo pedido (Cliente sentou e pediu os primeiros itens)
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PedidoResponseDTO abrirPedido(PedidoRequestDTO dto) {
         autorizacaoMesa.verificarMesa(dto.numeroMesa());
         Map<Long, Produto> produtos = validarItens(dto.itens());
-        Mesa mesa = mesaRepository.findByNumero(dto.numeroMesa())
+        Mesa mesa = mesaRepository.findByNumeroForUpdate(dto.numeroMesa())
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada: " + dto.numeroMesa()));
 
+        entityManager.detach(mesa);
+        mesa = mesaRepository.findByNumeroForUpdate(mesa.getNumero())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa nao encontrada."));
         List<Pedido> pedidosAtivos = pedidoRepository.findAtivosByMesaNumero(mesa.getNumero());
         if (!pedidosAtivos.isEmpty()) {
             throw new ConflitoException("A mesa já possui um pedido ativo.");
@@ -65,6 +74,8 @@ public class PedidoService {
         if (!mesa.isAtivo() || mesa.getStatus() != StatusMesa.LIVRE) {
             throw new ConflitoException("A abertura exige uma mesa ativa e LIVRE. Revise a disponibilidade da mesa.");
         }
+
+        bloquearProdutos(produtos);
 
         Pedido pedido = new Pedido();
         pedido.setMesa(mesa);
@@ -108,7 +119,7 @@ public class PedidoService {
     }
 
     // 2. Adicionar mais itens a um pedido já aberto
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PedidoResponseDTO adicionarItens(Long pedidoId, List<ItemPedidoRequestDTO> novosItensDto) {
         autorizacaoMesa.verificarVinculo();
         Map<Long, Produto> produtos = validarItens(novosItensDto);
@@ -116,11 +127,13 @@ public class PedidoService {
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
 
         autorizacaoMesa.verificarMesa(pedido.getMesa());
+        pedido = bloquearPedido(pedido);
 
         if (pedido.getStatus() != StatusPedido.ABERTO) {
             throw new ConflitoException("Apenas pedidos ABERTOS podem receber novos itens.");
         }
 
+        bloquearProdutos(produtos);
         BigDecimal faturamentoAdicional = BigDecimal.ZERO;
 
         for (ItemPedidoRequestDTO itemDto : novosItensDto) {
@@ -181,11 +194,17 @@ public class PedidoService {
     }
 
     // 2.5. Atualizar Status de um Item Específico na Cozinha
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void atualizarStatusItem(Long itemId, StatusItemPedido novoStatus) {
         ItemPedido item = itemPedidoRepository.findById(itemId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Item do pedido não encontrado. ID: " + itemId));
 
+        if (item.getPedido() != null) {
+            bloquearPedido(item.getPedido());
+        }
+        entityManager.detach(item);
+        item = itemPedidoRepository.findByIdForUpdate(itemId)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Item nao encontrado."));
         item.setStatus(novoStatus);
 
         if (novoStatus == StatusItemPedido.PRONTO) {
@@ -196,13 +215,14 @@ public class PedidoService {
     }
 
     // 3. Solicitação de Fechamento pelo Cliente (Área do Cliente - Encerramento no Tablet)
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PedidoResponseDTO finalizarPedido(Long pedidoId, String formaPagamento) {
         autorizacaoMesa.verificarVinculo();
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
 
         autorizacaoMesa.verificarMesa(pedido.getMesa());
+        pedido = bloquearPedido(pedido);
 
         if (pedido.getStatus() != StatusPedido.ABERTO) {
             throw new ConflitoException("Apenas pedidos ABERTOS podem solicitar fechamento. Status atual: " + pedido.getStatus());
@@ -219,10 +239,12 @@ public class PedidoService {
     }
 
     // NOVO 3.5. Confirmar Recebimento no Caixa (Área do Gerente/Caixa - Encerra de Verdade)
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PedidoResponseDTO confirmarPagamentoEFecharMesa(Long pedidoId) {
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
+
+        pedido = bloquearPedido(pedido);
 
         if (pedido.getStatus() != StatusPedido.AGUARDANDO_PAGAMENTO) {
             throw new ConflitoException("Este pedido não está aguardando pagamento. Status atual: " + pedido.getStatus());
@@ -267,6 +289,31 @@ public class PedidoService {
             throw new ConflitoException("A conta ativa da mesa está inconsistente. Revise os pedidos antes de continuar.");
         }
         validarMesaOcupada(pedido.getMesa());
+    }
+
+    private Pedido bloquearPedido(Pedido pedido) {
+        Mesa mesa = mesaRepository.findByNumeroForUpdate(pedido.getMesa().getNumero())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa nao encontrada."));
+        entityManager.detach(mesa);
+        mesa = mesaRepository.findByNumeroForUpdate(mesa.getNumero())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa nao encontrada."));
+        entityManager.detach(pedido);
+        Pedido atualizado = pedidoRepository.findByIdForUpdate(pedido.getId())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido nao encontrado."));
+        // O filtro/leituras anteriores podem ter carregado entidades antes de esperar pelo lock.
+        return atualizado;
+    }
+
+    private void bloquearProdutos(Map<Long, Produto> produtos) {
+        for (Long id : produtos.keySet().stream().sorted().toList()) {
+            entityManager.detach(produtos.get(id));
+            Produto produto = produtoRepository.findByIdForUpdate(id)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Produto inativo ou nao encontrado."));
+            if (!produto.isAtivo()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Produto inativo ou nao encontrado.");
+            }
+            produtos.put(id, produto);
+        }
     }
 
     private void validarMesaOcupada(Mesa mesa) {

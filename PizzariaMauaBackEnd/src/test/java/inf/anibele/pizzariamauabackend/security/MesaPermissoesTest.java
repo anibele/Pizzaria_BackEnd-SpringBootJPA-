@@ -104,6 +104,7 @@ class MesaPermissoesTest {
     static class ConfiguracaoTeste {
         @Bean MesaService mesaService() { return mock(MesaService.class); }
         @Bean UsuarioRepository usuarioRepository() { return mock(UsuarioRepository.class); }
+        @Bean jakarta.persistence.EntityManager entityManager() { return mock(jakarta.persistence.EntityManager.class); }
         @Bean TokenService tokenService() { return mock(TokenService.class); }
         @Bean UserDetailsService userDetailsService() {
             return username -> { throw new UsernameNotFoundException("Usuário de teste não encontrado"); };

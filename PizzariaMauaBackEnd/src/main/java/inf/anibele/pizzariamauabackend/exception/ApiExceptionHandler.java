@@ -6,6 +6,9 @@ import inf.anibele.pizzariamauabackend.controller.ProdutoController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
+import jakarta.persistence.LockTimeoutException;
+import jakarta.persistence.PessimisticLockException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -34,6 +37,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ConflitoException.class)
     public ResponseEntity<Object> tratarConflito(ConflitoException exception) {
         return resposta(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
+    @ExceptionHandler({PessimisticLockingFailureException.class, LockTimeoutException.class, PessimisticLockException.class})
+    public ResponseEntity<Object> tratarConflitoDeLock() {
+        return resposta(HttpStatus.CONFLICT, "Operacao concorrente em andamento. Atualize os dados e tente novamente.");
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

@@ -45,6 +45,7 @@ class PedidoServiceTest {
     void preparar() {
         service = new PedidoService(pedidoRepository, mesaRepository, produtoRepository,
                 itemPedidoRepository, new PedidoMapper(new ItemPedidoMapper()), mock(AutorizacaoMesa.class));
+        inf.anibele.pizzariamauabackend.LocksTeste.configurar(service, mesaRepository, pedidoRepository, produtoRepository);
         produto = new Produto();
         produto.setId(1L);
         produto.setNome("Pizza");
@@ -54,6 +55,7 @@ class PedidoServiceTest {
         mesa = new Mesa();
         mesa.setNumero(1);
         mesa.setStatus(StatusMesa.LIVRE);
+        lenient().when(mesaRepository.findByNumero(1)).thenReturn(Optional.of(mesa));
         pedido = new Pedido();
         pedido.setId(7L);
         pedido.setMesa(mesa);
@@ -177,6 +179,16 @@ class PedidoServiceTest {
         verificarEstadoOriginal();
         verify(produtoRepository, never()).save(any());
         verify(pedidoRepository, never()).save(any());
+    }
+
+    @Test
+    void itemLegadoSemPedidoPreservaComportamentoAnteriorSemNovaValidacaoD11() {
+        ItemPedido item=new ItemPedido();item.setId(1L);
+        when(itemPedidoRepository.findById(1L)).thenReturn(Optional.of(item));
+        when(itemPedidoRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(item));
+        service.atualizarStatusItem(1L,StatusItemPedido.PRONTO);
+        assertEquals(StatusItemPedido.PRONTO,item.getStatus());assertNotNull(item.getDataHoraConclusao());
+        verify(itemPedidoRepository).save(item);verifyNoInteractions(mesaRepository,pedidoRepository);
     }
 
     private void verificarEstadoOriginal() {

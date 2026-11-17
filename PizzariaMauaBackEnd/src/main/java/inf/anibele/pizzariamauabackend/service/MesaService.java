@@ -19,10 +19,16 @@ import inf.anibele.pizzariamauabackend.exception.ConflitoException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import jakarta.persistence.EntityManager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Isolation;
 import java.util.stream.Collectors;
 
 @Service
 public class MesaService {
+
+    @Autowired
+    private EntityManager entityManager;
 
     private final MesaRepository mesaRepository;
     private final UsuarioRepository usuarioRepository;
@@ -88,11 +94,14 @@ public class MesaService {
         return mesaMapper.toResponseDTO(mesa);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void atualizarStatus(Integer numero, StatusMesa status) {
-        Mesa mesa = mesaRepository.findByNumero(numero)
+        Mesa mesa = mesaRepository.findByNumeroForUpdate(numero)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
 
+        entityManager.detach(mesa);
+        mesa = mesaRepository.findByNumeroForUpdate(numero)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Recurso nao encontrado."));
         boolean possuiPedidoAtivo = possuiPedidoAtivoConsistente(mesa);
         if (possuiPedidoAtivo && status != StatusMesa.OCUPADA) {
             throw new ConflitoException("Uma mesa com pedido ativo deve permanecer OCUPADA.");
@@ -101,11 +110,14 @@ public class MesaService {
         mesaRepository.save(mesa);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void alterarAtivacao(Integer numero, boolean ativo) {
-        Mesa mesa = mesaRepository.findByNumero(numero)
+        Mesa mesa = mesaRepository.findByNumeroForUpdate(numero)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
 
+        entityManager.detach(mesa);
+        mesa = mesaRepository.findByNumeroForUpdate(numero)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Recurso nao encontrado."));
         boolean possuiPedidoAtivo = possuiPedidoAtivoConsistente(mesa);
         if (possuiPedidoAtivo && !ativo) {
             throw new ConflitoException("Não é possível desativar uma mesa com pedido ativo.");
@@ -114,11 +126,14 @@ public class MesaService {
         mesaRepository.save(mesa);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void excluir(Integer numero) {
-        Mesa mesa = mesaRepository.findByNumero(numero)
+        Mesa mesa = mesaRepository.findByNumeroForUpdate(numero)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
 
+        entityManager.detach(mesa);
+        mesa = mesaRepository.findByNumeroForUpdate(numero)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Recurso nao encontrado."));
         try {
             var credencial = usuarioRepository.findByMesaId(mesa.getId());
             if (credencial.isPresent()) {

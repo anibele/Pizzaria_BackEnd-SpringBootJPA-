@@ -6,14 +6,21 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import inf.anibele.pizzariamauabackend.dto.dashboarddto.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from Pedido m where m.id = :valor")
+    Optional<Pedido> findByIdForUpdate(@Param("valor") Long valor);
     // Busca os pedidos por uma lista de status (útil para a Cozinha ver apenas os pedidos ABERTOs e AGUARDANDO_PAGAMENTO)
     List<Pedido> findByStatusIn(List<StatusPedido> statuses);
     // Busca os pedidos por status (crucial para a Cozinha ver apenas os pedidos ABERTOs)

@@ -42,6 +42,7 @@ class ProtecaoVinculoMesaTest {
         MesaService service = new MesaService(mesas, usuarios, mock(PasswordEncoder.class),
                 new MesaMapper(), new AutorizacaoMesa(), mock(inf.anibele.pizzariamauabackend.repository.PedidoRepository.class));
 
+        inf.anibele.pizzariamauabackend.LocksTeste.configurar(service, mesas);
         assertThrows(ConflitoException.class, () -> service.excluir(1));
 
         verify(usuarios, never()).delete(any());
