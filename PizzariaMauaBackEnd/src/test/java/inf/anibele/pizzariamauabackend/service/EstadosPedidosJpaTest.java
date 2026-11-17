@@ -181,6 +181,7 @@ class EstadosPedidosJpaTest {
             f.setJpaVendorAdapter(new HibernateJpaVendorAdapter());f.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto","create-drop","hibernate.physical_naming_strategy","org.hibernate.boot.model.naming.PhysicalNamingStrategySnakeCaseImpl"));return f;
         }
         @Bean PlatformTransactionManager transactionManager(EntityManagerFactory emf) {return new JpaTransactionManager(emf);}
+        @Bean tools.jackson.databind.json.JsonMapper jsonMapper() { return tools.jackson.databind.json.JsonMapper.builder().findAndAddModules().build(); }
         @Bean PedidoService pedidoService(PedidoRepository p,MesaRepository m,ProdutoRepository pr,ItemPedidoRepository i) {
             return new PedidoService(p,m,pr,i,new PedidoMapper(new ItemPedidoMapper()),mock(AutorizacaoMesa.class));
         }

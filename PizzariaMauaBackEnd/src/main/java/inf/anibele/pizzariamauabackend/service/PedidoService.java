@@ -24,6 +24,13 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneOffset;
+import java.security.MessageDigest;
+import java.util.UUID;
+import tools.jackson.databind.json.JsonMapper;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.AccessDeniedException;
+import inf.anibele.pizzariamauabackend.repository.IdempotenciaAdicaoRepository;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,6 +42,12 @@ public class PedidoService {
 
     @Autowired
     private EntityManager entityManager;
+
+    @Autowired
+    private IdempotenciaAdicaoRepository idempotenciaRepository;
+
+    @Autowired
+    private JsonMapper jsonMapper;
 
     private final PedidoRepository pedidoRepository;
     private final MesaRepository mesaRepository;
@@ -129,6 +142,55 @@ public class PedidoService {
         autorizacaoMesa.verificarMesa(pedido.getMesa());
         pedido = bloquearPedido(pedido);
 
+        return incluirItens(pedido, novosItensDto, produtos);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public String adicionarItensComChave(Long pedidoId, List<ItemPedidoRequestDTO> itens, UUID chave) {
+        if (chave == null || pedidoId == null || pedidoId <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe pedido e chave validos.");
+        }
+        autorizacaoMesa.verificarVinculo();
+        validarEstruturaItens(itens);
+        var autenticacao = SecurityContextHolder.getContext().getAuthentication();
+        if (autenticacao == null || !autenticacao.isAuthenticated()
+                || !(autenticacao.getPrincipal() instanceof Usuario usuario) || usuario.getId() == null) {
+            throw new AccessDeniedException("Usuario autenticado necessario.");
+        }
+        Pedido pedido = pedidoRepository.findById(pedidoId)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido nao encontrado."));
+        autorizacaoMesa.verificarMesa(pedido.getMesa());
+        pedido = bloquearPedido(pedido);
+        autorizacaoMesa.verificarMesa(pedido.getMesa());
+        byte[] hash = OperacaoAdicao.hash(pedidoId, itens);
+        var anterior = idempotenciaRepository.findByUsuarioIdAndPedidoIdAndChave(usuario.getId(), pedidoId, chave);
+        if (anterior.isPresent()) {
+            var operacao = anterior.get();
+            if (!MessageDigest.isEqual(hash, operacao.getPayloadHash())) {
+                throw new ConflitoException("Idempotency-Key ja utilizada com conteudo diferente.");
+            }
+            return operacao.getRespostaJson();
+        }
+        if (pedido.getStatus() != StatusPedido.ABERTO) {
+            throw new ConflitoException("Apenas pedidos ABERTOS podem receber novos itens.");
+        }
+        var resposta = incluirItens(pedido, itens, buscarProdutos(itens));
+        String json = jsonMapper.writeValueAsString(resposta);
+        var registro = new IdempotenciaAdicao();
+        registro.setUsuario(entityManager.getReference(Usuario.class, usuario.getId()));
+        registro.setPedido(pedido);
+        registro.setChave(chave);
+        registro.setPayloadHash(hash);
+        registro.setRespostaJson(json);
+        registro.setStatusHttp((short) 200);
+        registro.setCriadoEm(LocalDateTime.now(ZoneOffset.UTC));
+        // Sem expiracao/limpeza automatica nesta etapa.
+        idempotenciaRepository.saveAndFlush(registro);
+        return json;
+    }
+
+    private PedidoResponseDTO incluirItens(Pedido pedido, List<ItemPedidoRequestDTO> novosItensDto,
+                                            Map<Long, Produto> produtos) {
         if (pedido.getStatus() != StatusPedido.ABERTO) {
             throw new ConflitoException("Apenas pedidos ABERTOS podem receber novos itens.");
         }
@@ -166,6 +228,11 @@ public class PedidoService {
     }
 
     private Map<Long, Produto> validarItens(List<ItemPedidoRequestDTO> itens) {
+        validarEstruturaItens(itens);
+        return buscarProdutos(itens);
+    }
+
+    private void validarEstruturaItens(List<ItemPedidoRequestDTO> itens) {
         if (itens == null || itens.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe ao menos um item no pedido.");
         }
@@ -181,7 +248,9 @@ public class PedidoService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A quantidade deve ser um número inteiro maior que zero.");
             }
         }
+    }
 
+    private Map<Long, Produto> buscarProdutos(List<ItemPedidoRequestDTO> itens) {
         Map<Long, Produto> produtos = new HashMap<>();
         for (ItemPedidoRequestDTO item : itens) {
             if (!produtos.containsKey(item.produtoId())) {

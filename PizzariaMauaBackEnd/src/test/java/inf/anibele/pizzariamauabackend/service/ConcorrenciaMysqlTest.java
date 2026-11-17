@@ -71,7 +71,7 @@ class ConcorrenciaMysqlTest {
 
     @BeforeEach void preparar() {
         jdbc=new JdbcTemplate(ds);
-        for(String t:List.of("item_pedido","pedido","usuario","produto_ingredientes","produto","mesa")) jdbc.update("delete from "+t);
+        for(String t:List.of("idempotencia_adicao","item_pedido","pedido","usuario","produto_ingredientes","produto","mesa")) jdbc.update("delete from "+t);
         a=produto("A",50,10);b=produto("B",30,10);
         for(int i=1;i<=8;i++){var m=new Mesa();m.setNumero(i);m.setStatus(StatusMesa.LIVRE);mesas.save(m);}
         SQL.clear();
@@ -331,6 +331,7 @@ class ConcorrenciaMysqlTest {
         long autor=usuarios.findByUsername("autor-proposta").orElseThrow().getId();
         long outro=usuarios.findByUsername("outro-autor").orElseThrow().getId();var antes=snapshot();
         String ddl=java.nio.file.Files.readString(Path.of("..","Dados_SQL","fase4c","proposta_idempotencia.sql"));
+        jdbc.execute("drop table idempotencia_adicao"); // Agora mapeada pelo Hibernate; ensaia o DDL aprovado.
         jdbc.execute(ddl);
         try {
             assertEquals(2,jdbc.queryForObject("select count(*) from information_schema.referential_constraints where constraint_schema=database() and table_name='idempotencia_adicao'",Integer.class));
@@ -354,7 +355,7 @@ class ConcorrenciaMysqlTest {
                 }
             }
             assertEquals(0,jdbc.queryForObject("select count(*) from idempotencia_adicao",Integer.class));assertEquals(antes,snapshot());
-        } finally {jdbc.execute("drop table idempotencia_adicao");}
+        } finally {jdbc.update("delete from idempotencia_adicao");}
     }
     private void credencial(String nome,int numero) {
         var u=new Usuario();u.setUsername(nome);u.setSenha("hash-sintetico");u.setRole(RoleName.MESA);u.setMesa(mesas.findByNumero(numero).orElseThrow());usuarios.saveAndFlush(u);
@@ -411,6 +412,7 @@ class ConcorrenciaMysqlTest {
             f.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto","create-drop","hibernate.physical_naming_strategy","org.hibernate.boot.model.naming.PhysicalNamingStrategySnakeCaseImpl","hibernate.session_factory.statement_inspector",(StatementInspector)sql->{SQL.add(sql);if(sql.toLowerCase().contains("for update")) LOCK_SQL.add(sql);return sql;}));return f;
         }
         @Bean PlatformTransactionManager transactionManager(EntityManagerFactory emf){return new JpaTransactionManager(emf);}
+        @Bean tools.jackson.databind.json.JsonMapper jsonMapper() { return tools.jackson.databind.json.JsonMapper.builder().findAndAddModules().build(); }
         @Bean PedidoService pedidoService(PedidoRepository p,MesaRepository m,ProdutoRepository pr,ItemPedidoRepository i){return new PedidoService(p,m,pr,i,new PedidoMapper(new ItemPedidoMapper()),mock(AutorizacaoMesa.class));}
         @Bean ProdutoService produtoService(ProdutoRepository p){return new ProdutoService(p,new ProdutoMapper());}
         @Bean MesaService mesaService(MesaRepository m,UsuarioRepository u,PedidoRepository p){return new MesaService(m,u,mock(PasswordEncoder.class),new MesaMapper(),mock(AutorizacaoMesa.class),p);}

@@ -1,6 +1,12 @@
-# Fase 4D.1 — preparação da idempotência de adição de itens
+# Fase 4D — idempotência de adição de itens
 
-**Proposta revisada; D20 ainda não implementado.** Não aplicar SQL no banco original nesta etapa. Nenhuma classe de produção passa a depender da tabela. O histórico de D11/D12 e os resultados da Fase 4C estão no [documento anterior](../fase4c/README.md). A ordem dos locks segue a [Fase 4B](../fase4b/README.md).
+**Fase 4D.3: backend implementado para requisições com chave.** Veja [operação, contrato efetivo e testes](IMPLEMENTACAO.md). Sem chave, os clientes continuam no fluxo legado; a integração completa com os tablets depende da Fase 4D.4.
+
+## Histórico da preparação 4D.1
+
+As seções abaixo registram o desenho original e seus testes SQL, não o estado atual da implementação. O SQL foi aplicado na Fase 4D.2, antes da inclusão da entidade JPA. Na 4D.3 `expira_em` permanece NULL inclusive após encerramento, sem limpeza automática; os 30 dias continuam sendo proposta futura.
+
+**Registro histórico da 4D.1:** Não aplicar SQL no banco original nesta etapa. Nenhuma classe de produção passa a depender da tabela. O histórico de D11/D12 e os resultados da Fase 4C estão no [documento anterior](../fase4c/README.md). A ordem dos locks segue a [Fase 4B](../fase4b/README.md).
 
 ## Contrato real inspecionado
 

@@ -10,6 +10,8 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import inf.anibele.pizzariamauabackend.service.OperacaoAdicao;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -37,9 +39,15 @@ public class PedidoController {
 
     // 2. Adicionar mais itens ao pedido atual (Área do Cliente - Tablet)
     @PutMapping("/{id}/itens")
-    public ResponseEntity<PedidoResponseDTO> adicionarItens(
+    public ResponseEntity<?> adicionarItens(
             @Positive @PathVariable Long id,
-            @RequestBody List<ItemPedidoRequestDTO> novosItens) {
+            @RequestBody List<ItemPedidoRequestDTO> novosItens,
+            @RequestHeader(value = "Idempotency-Key", required = false) List<String> chaves) {
+        var chave = OperacaoAdicao.validarChave(chaves);
+        if (chave != null) {
+            String json = pedidoService.adicionarItensComChave(id, novosItens, chave);
+            return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(json);
+        }
         PedidoResponseDTO response = pedidoService.adicionarItens(id, novosItens);
         return ResponseEntity.ok(response);
     }

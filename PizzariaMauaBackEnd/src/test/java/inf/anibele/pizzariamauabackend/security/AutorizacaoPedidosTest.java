@@ -255,6 +255,8 @@ class AutorizacaoPedidosTest {
         @Bean UserDetailsService userDetailsService() {
             return username -> { throw new UsernameNotFoundException("Usuário de teste não encontrado"); };
         }
+        @Bean tools.jackson.databind.json.JsonMapper jsonMapper() { return tools.jackson.databind.json.JsonMapper.builder().findAndAddModules().build(); }
+        @Bean inf.anibele.pizzariamauabackend.repository.IdempotenciaAdicaoRepository idempotenciaRepository() { return mock(inf.anibele.pizzariamauabackend.repository.IdempotenciaAdicaoRepository.class); }
         @Bean PedidoService pedidoService(PedidoRepository pedidos, MesaRepository mesas, ProdutoRepository produtos,
                 ItemPedidoRepository itens, AutorizacaoMesa autorizacao) {
             return new PedidoService(pedidos, mesas, produtos, itens, new PedidoMapper(new ItemPedidoMapper()), autorizacao);
