@@ -16,52 +16,13 @@ O Controller delega a exclusão ao Service e retorna 204 apenas em sucesso. Não
 
 A exclusão usa somente a associação real Usuario → Mesa, mantendo os guards de perfil anteriores. Uma FK adicional/desconhecida ainda pode impedir a operação depois da exclusão provisória da credencial: a exceção vira conflito e toda a transação é revertida. Não há cascata para pedidos ou apagamento de histórico. A abertura e exclusão continuam coordenadas pelo mesmo lock da mesa.
 
-## D20 — PENDENTE, proposta sem dependência em produção
+## D20 — PENDENTE, preparação revisada na Fase 4D.1
 
-Não existe no modelo atual um identificador persistente que diferencie reenvio acidental de nova adição intencional. Comparar itens/quantidades confundiria essas intenções. Trocar PUT por POST também não resolveria reenvio após perda da resposta. Uma lista em memória perderia estado em reinício e não coordenaria duas instâncias.
+A Fase 4C deixou uma proposta sem dependência no código de produção. A revisão do contrato, SQL, canonicalização, retenção e concorrência está agora em [Fase 4D.1](../fase4d/README.md), documento de referência para a futura implementação.
 
-Recomenda-se **Idempotency-Key** enviado pelo React e registro persistente de operações. Um campo no corpo também funcionaria, mas alteraria o DTO atual; o cabeçalho preserva o formato do corpo e a rota `PUT /pedidos/{id}/itens`.
+[proposta_idempotencia.sql](proposta_idempotencia.sql) continua sendo apenas uma proposta de CREATE TABLE, sem migration automática e sem aplicação no banco de trabalho. A revisão substituiu JSON binário por texto JSON validado para preservar a resposta e tornou a expiração nullable para reter operações de pedidos ativos. A proposta anterior de sete dias com tombstones foi substituída pela política documentada na Fase 4D.1.
 
-### Migração proposta
-
-`proposta_idempotencia.sql` contém apenas CREATE TABLE, sem alterações dos registros existentes. **Não foi aplicado ao banco de trabalho e não é uma migration automática.** Não existe entidade, repository ou consulta de produção que dependa dessa tabela nesta entrega; `ddl-auto=validate` continua intacto.
-
-Colunas propostas:
-
-- ID técnico BIGINT; usuário e pedido com FKs restritivas, sem cascatas.
-- Chave UUID fornecida pelo cliente, convertida para BINARY(16); não é gerada por tentativa no backend.
-- SHA-256 do payload validado, BINARY(32).
-- Snapshot JSON da resposta de sucesso e status 200.
-- Datas UTC de criação e expiração; índice para futura limpeza em lotes.
-- UNIQUE `(usuario_id, pedido_id, chave)` para coordenar instâncias e rejeitar registro duplicado.
-
-O hash deve usar uma representação canônica dos DTOs validados: IDs/quantidades inteiros, campos em ordem fixa, mantendo a ordem e as repetições da lista. Espaços e ordem das propriedades do JSON bruto não devem importar. Reordenar itens será considerado payload diferente, conforme esse contrato proposto. Não se usa apenas o hash como identificador da intenção.
-
-### Fluxo futuro a aprovar e implementar
-
-1. Autenticar e autorizar o usuário atual sobre o pedido, sem confiar em usuário/mesa enviados pelo cliente.
-2. Bloquear Mesa → Pedido conforme a Fase 4B e consultar a chave no escopo do usuário autenticado e do pedido.
-3. Se existir: hash diferente retorna 409; hash igual e resposta retida devolve o status e o conteúdo JSON original (mesmos campos e valores, sem promessa de identidade byte a byte), sem novos itens, estoque ou total. Isso pode ocorrer mesmo se o pedido tiver fechado desde a primeira execução, mas exige novamente autorização atual.
-4. Se não existir: validar estado ABERTO, bloquear Produtos por ID e executar a adição normal.
-5. Gravar a resposta e a chave **na mesma transação** da adição; commit confirma ambas, rollback desfaz ambas. Não há linha concluída numa transação independente nem resposta enviada antes do commit.
-
-O lock do pedido serializa repetições simultâneas entre instâncias; a UNIQUE é uma proteção adicional. Perda da resposta após commit permite buscar o resultado persistido com a mesma chave. Reinício não perde esse registro. Um usuário MESA de outra mesa é bloqueado antes de consultar respostas; a chave não concede acesso. Como o escopo inclui usuário, um retry não deve ser transferido silenciosamente para outra conta autenticada.
-
-O React deverá criar um UUID por intenção de adição (por exemplo com `crypto.randomUUID()` quando disponível), guardá-lo durante todas as tentativas e usar outro UUID para uma nova adição intencional, mesmo com os mesmos produtos. Na futura implementação, será necessário também permitir `Idempotency-Key` no CORS. Nenhuma dessas mudanças do React/CORS foi feita nesta fase.
-
-### Retenção e crescimento — decisão pendente
-
-Proposta inicial para aprovação: reter o snapshot por sete dias. Após expiração, retornar 409 para a chave antiga, nunca executar novamente a adição. Uma limpeza futura pode remover apenas o JSON, mantendo a linha compacta (chave, hash, escopo e datas) como tombstone. A coluna JSON é nullable por isso; uma linha existente sem resposta nunca pode ser interpretada como operação inédita.
-
-Não apagar a linha inteira e depois aceitar a mesma chave como nova: isso permitiria cobrança duplicada tardia. Tombstones permanecem até uma política explícita de arquivamento/remoção do pedido que garanta que ele não poderá receber novas adições. O custo cresce em uma linha por intenção confirmada mais o JSON durante sua retenção; dimensionamento, prazo final e limpeza precisam de aprovação, sem estimativas de tráfego inventadas. A limpeza não pode inverter a ordem dos locks. As FKs restritivas também exigem considerar o ciclo de vida futuro de usuários e pedidos.
-
-Para compatibilidade, pode-se iniciar com cabeçalho opcional e migrar o React, mas isso seria **correção parcial** enquanto existirem adições sem chave. Torná-lo obrigatório exige aprovação da mudança de contrato. Atualmente o endpoint não interpreta a chave e continua sem idempotência: **D20 permanece pendente**, sem garantia nova para reenvios.
-
-### Limites dos testes da proposta
-
-O script deve ser validado somente no MySQL descartável para conferir DDL, UNIQUE, FKs, CHECKs, preservação dos registros anteriores e rollback do registro proposto. Isso não equivale a testar idempotência na API. Não foram implementados nem considerados aprovados os cenários HTTP de replay, falha de rede, reinício, duas instâncias ou limpeza de chaves.
-
-Antes de uma implementação futura: aprovar contrato/retenção, preparar backup restaurável e ensaio numa cópia, aplicar a migration em etapa autorizada, então implementar armazenamento e replay com testes completos e integração React. Não iniciar código que exija a tabela antes dessa aprovação/aplicação.
+O endpoint atual continua sem interpretar `Idempotency-Key`: **D20 permanece pendente**. Não há entidade, repository ou consulta de produção para a tabela proposta; `ddl-auto=validate` permanece intacto. Migração, backend e React exigem etapas posteriores separadas.
 
 ## Execução segura
 
