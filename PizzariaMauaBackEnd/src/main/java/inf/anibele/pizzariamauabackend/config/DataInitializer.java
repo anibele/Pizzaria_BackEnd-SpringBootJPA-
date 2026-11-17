@@ -7,6 +7,11 @@ import inf.anibele.pizzariamauabackend.repository.UsuarioRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import inf.anibele.pizzariamauabackend.repository.PedidoRepository;
+import inf.anibele.pizzariamauabackend.repository.ItemPedidoRepository;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.slf4j.Logger;
@@ -17,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Configuration
+@Profile("demo & !prod")
 public class DataInitializer {
 
     private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
@@ -25,6 +31,25 @@ public class DataInitializer {
             "https://raw.githubusercontent.com/anibele/Pizzaria_FrontEnd-React-Vite-Axios/refs/heads/main/imagens_cardapio/";
 
     @Bean
+    public CommandLineRunner carregarDadosDemonstrativos(UsuarioRepository usuarios, MesaRepository mesas,
+            ProdutoRepository produtos, PedidoRepository pedidos, ItemPedidoRepository itens,
+            PasswordEncoder encoder, PlatformTransactionManager transactionManager) {
+        return args -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            if (usuarios.count() > 0 || mesas.count() > 0 || produtos.count() > 0
+                    || pedidos.count() > 0 || itens.count() > 0) {
+                log.info("Carga demo ignorada: base com dados. Registros ausentes nao serao recriados.");
+                return;
+            }
+            try {
+                carregarMesas(mesas).run(args);
+                carregarUsuarios(usuarios, encoder, mesas).run(args);
+                carregarProdutos(produtos).run(args);
+            } catch (Exception exception) {
+                throw new IllegalStateException("Falha na carga demonstrativa; transacao revertida.", exception);
+            }
+        });
+    }
+
     @Order(2)
     public CommandLineRunner carregarUsuarios(UsuarioRepository repository, PasswordEncoder passwordEncoder,
                                              MesaRepository mesaRepository) {
@@ -80,7 +105,6 @@ public class DataInitializer {
         };
     }
 
-    @Bean
     @Order(1)
     public CommandLineRunner carregarMesas(MesaRepository mesaRepository) {
         return args -> {
@@ -99,7 +123,6 @@ public class DataInitializer {
         };
     }
 
-    @Bean
     public CommandLineRunner carregarProdutos(ProdutoRepository produtoRepository) {
         return args -> {
             List<Produto> produtos = new ArrayList<>();
@@ -245,13 +268,7 @@ public class DataInitializer {
                     "Encorpado, sofisticado e ideal para harmonização.",
                     List.of("vinho tinto")));
 
-            List<Produto> novos = produtos.stream()
-                    .filter(produto -> produtoRepository.findByNome(produto.getNome()).isEmpty())
-                    .toList();
-
-            if (!novos.isEmpty()) {
-                produtoRepository.saveAll(novos);
-            }
+            produtoRepository.saveAll(produtos);
         };
     }
 

@@ -1,6 +1,7 @@
 package inf.anibele.pizzariamauabackend.security;
 
 import inf.anibele.pizzariamauabackend.repository.UsuarioRepository;
+import com.auth0.jwt.exceptions.JWTVerificationException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,6 +25,13 @@ public class SecurityFilter extends OncePerRequestFilter {
     private UsuarioRepository repository;
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        // Um token antigo não deve impedir a obtenção de um novo pelo login público.
+        return "POST".equals(request.getMethod())
+                && (request.getContextPath() + "/auth/login").equals(request.getRequestURI());
+    }
+
+    @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         var tokenJWT = recuperarToken(request);
 
@@ -43,13 +51,15 @@ public class SecurityFilter extends OncePerRequestFilter {
 
                     // 4. Diz ao Spring Security: "Este usuário está autenticado e tem essas permissões"
                     SecurityContextHolder.getContext().setAuthentication(authentication);
+                } else {
+                    SecurityContextHolder.clearContext();
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    return;
                 }
-            } catch (Exception e) {
-                // CAPA DE PROTEÇÃO: Se o token for inválido, modificado ou expirado,
-                // nós simplesmente limpamos o contexto de autenticação.
-                // Assim, o Spring Security barra a requisição de forma elegante com 403/401
-                // nas rotas protegidas, em vez de estourar um erro interno 500.
+            } catch (JWTVerificationException e) {
                 SecurityContextHolder.clearContext();
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
             }
         }
 
@@ -60,7 +70,7 @@ public class SecurityFilter extends OncePerRequestFilter {
     private String recuperarToken(HttpServletRequest request) {
         var authorizationHeader = request.getHeader("Authorization");
         if (authorizationHeader != null) {
-            return authorizationHeader.replace("Bearer ", "");
+            return authorizationHeader.startsWith("Bearer ") ? authorizationHeader.substring(7) : "";
         }
         return null;
     }
