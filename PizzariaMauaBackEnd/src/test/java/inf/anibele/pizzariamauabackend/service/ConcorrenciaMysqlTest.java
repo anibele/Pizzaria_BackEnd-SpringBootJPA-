@@ -12,6 +12,17 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.Arguments;
+import java.util.stream.Stream;
+import java.time.LocalDateTime;
+import inf.anibele.pizzariamauabackend.controller.*;
+import inf.anibele.pizzariamauabackend.exception.ApiExceptionHandler;
+import inf.anibele.pizzariamauabackend.exception.RecursoNaoEncontradoException;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.*;
@@ -48,6 +59,7 @@ class ConcorrenciaMysqlTest {
     @Autowired MesaRepository mesas;
     @Autowired ProdutoRepository produtos;
     @Autowired PedidoRepository pedidos;
+    @Autowired UsuarioRepository usuarios;
     @Autowired DataSource ds;
     @Autowired PlatformTransactionManager tm;
     @Autowired EntityManager em;
@@ -221,13 +233,139 @@ class ConcorrenciaMysqlTest {
         assertEquals(2,sucessos(r));assertEquals("PRONTO",jdbc.queryForObject("select status from item_pedido where id=?",String.class,item));
         assertEquals(new BigDecimal("80.00"),pedidos.findById(p.id()).orElseThrow().getFaturamento());assertEquals(9,saldo(a));assertEquals(9,saldo(b));
     }
+    static Stream<Arguments> transicoes4c() {
+        return Stream.of(StatusPedido.values()).flatMap(p->Stream.of(StatusItemPedido.values()).flatMap(a->Stream.of(StatusItemPedido.values()).map(n->Arguments.of(p,a,n))));
+    }
+    @ParameterizedTest @MethodSource("transicoes4c")
+    void R_transicoesItens(StatusPedido pedido,StatusItemPedido atual,StatusItemPedido destino) {
+        var p=abrir(1,a,1);long item=p.itens().get(0).id();
+        jdbc.update("update pedido set status=? where id=?",pedido.name(),p.id());
+        if(pedido==StatusPedido.FINALIZADO || pedido==StatusPedido.CANCELADO)jdbc.update("update mesa set status='LIVRE' where numero=1");
+        var historico=LocalDateTime.of(2026,1,1,12,0);
+        jdbc.update("update item_pedido set status=?,data_hora_conclusao=? where id=?",atual.name(),atual==StatusItemPedido.PRONTO?historico:null,item);
+        var antes=snapshot();SQL.clear();
+        boolean ativo=pedido==StatusPedido.ABERTO || pedido==StatusPedido.AGUARDANDO_PAGAMENTO;
+        boolean permitido=ativo && (atual==destino || atual==StatusItemPedido.PENDENTE || (atual==StatusItemPedido.EM_PREPARO && destino==StatusItemPedido.PRONTO));
+        if(!permitido){assertThrows(ConflitoException.class,()->service.atualizarStatusItem(item,destino));assertEquals(antes,snapshot());}
+        else {
+            service.atualizarStatusItem(item,destino);
+            assertEquals(destino.name(),jdbc.queryForObject("select status from item_pedido where id=?",String.class,item));
+            if(atual==destino){assertEquals(antes,snapshot());assertTrue(SQL.stream().noneMatch(q->q.toLowerCase().startsWith("update ")));}
+            else if(destino==StatusItemPedido.PRONTO)assertNotNull(jdbc.queryForObject("select data_hora_conclusao from item_pedido where id=?",LocalDateTime.class,item));
+            else assertNull(jdbc.queryForObject("select data_hora_conclusao from item_pedido where id=?",LocalDateTime.class,item));
+        }
+    }
+    @Test void S_repeticaoConcorrenteProntoNaoReescreveData() throws Exception {
+        var p=abrir(1,a,1);long item=p.itens().get(0).id();SQL.clear();
+        var inicio=LocalDateTime.now().minusSeconds(1);
+        var r=concorrer("mesa",idMesa(1),List.of(()->{service.atualizarStatusItem(item,StatusItemPedido.PRONTO);return "ok";},()->{service.atualizarStatusItem(item,StatusItemPedido.PRONTO);return "ok";}));
+        assertEquals(2,sucessos(r));assertEquals(1,SQL.stream().filter(q->q.toLowerCase().startsWith("update item_pedido ")).count());
+        var data=jdbc.queryForObject("select data_hora_conclusao from item_pedido where id=?",LocalDateTime.class,item);
+        assertNotNull(data);assertFalse(data.isBefore(inicio));assertFalse(data.isAfter(LocalDateTime.now().plusSeconds(1)));
+        service.atualizarStatusItem(item,StatusItemPedido.PRONTO);
+        assertEquals(data,jdbc.queryForObject("select data_hora_conclusao from item_pedido where id=?",LocalDateTime.class,item));
+    }
+    @Test void T_atualizacoesConcorrentesNaoRegridem() throws Exception {
+        var p=abrir(1,a,1);long item=p.itens().get(0).id();
+        var r=concorrer("mesa",idMesa(1),List.of(()->{service.atualizarStatusItem(item,StatusItemPedido.PRONTO);return "ok";},()->{service.atualizarStatusItem(item,StatusItemPedido.EM_PREPARO);return "ok";}));
+        assertTrue(sucessos(r)>=1);assertEquals("PRONTO",jdbc.queryForObject("select status from item_pedido where id=?",String.class,item));
+        var antes=snapshot();
+        var invalidas=concorrer("mesa",idMesa(1),List.of(()->{service.atualizarStatusItem(item,StatusItemPedido.PENDENTE);return "ok";},()->{service.atualizarStatusItem(item,StatusItemPedido.EM_PREPARO);return "ok";}));
+        assertEquals(0,sucessos(invalidas));assertEquals(antes,snapshot());
+    }
+    @Test void U_pagamentoVersusPreparoRespeitaEstadoAtual() throws Exception {
+        var p=abrir(1,a,1);long item=p.itens().get(0).id();service.finalizarPedido(p.id(),"PIX");
+        var r=concorrer("mesa",idMesa(1),List.of(()->service.confirmarPagamentoEFecharMesa(p.id()),()->{service.atualizarStatusItem(item,StatusItemPedido.PRONTO);return "ok";}));
+        assertEquals(StatusPedido.FINALIZADO,pedidos.findById(p.id()).orElseThrow().getStatus());
+        assertEquals(sucessos(r)==2?"PRONTO":"PENDENTE",jdbc.queryForObject("select status from item_pedido where id=?",String.class,item));
+    }
+    @ParameterizedTest @EnumSource(StatusPedido.class)
+    void V_exclusaoComHistoricoPreservaDados(StatusPedido estado) throws Exception {
+        var p=abrir(1,a,1);jdbc.update("update pedido set status=? where id=?",estado.name(),p.id());
+        if(estado==StatusPedido.FINALIZADO || estado==StatusPedido.CANCELADO)jdbc.update("update mesa set status='LIVRE' where numero=1");
+        credencial("tablet-personalizado",1);var antes=snapshot();
+        var mvc=MockMvcBuilders.standaloneSetup(new MesaController(mesaService)).setControllerAdvice(new ApiExceptionHandler()).build();
+        mvc.perform(delete("/mesas/1")).andExpect(status().isConflict()).andExpect(jsonPath("$.mensagem").isNotEmpty());
+        assertEquals(antes,snapshot());
+        jdbc.update("update mesa set ativo=false where numero=1");antes=snapshot();
+        mvc.perform(delete("/mesas/1")).andExpect(status().isConflict());assertEquals(antes,snapshot());
+    }
+    @ParameterizedTest @ValueSource(booleans={true,false})
+    void W_exclusaoValidaUsaVinculoReal(boolean possuiCredencial) throws Exception {
+        if(possuiCredencial)credencial("tablet-personalizado",1);credencial("outra-mesa",2);
+        var homonimo=new Usuario();homonimo.setUsername("mesa1");homonimo.setSenha("hash-sintetico");homonimo.setRole(RoleName.GERENTE);usuarios.saveAndFlush(homonimo);
+        var mvc=MockMvcBuilders.standaloneSetup(new MesaController(mesaService)).setControllerAdvice(new ApiExceptionHandler()).build();
+        mvc.perform(delete("/mesas/1")).andExpect(status().isNoContent());
+        assertTrue(mesas.findByNumero(1).isEmpty());assertTrue(usuarios.findByUsername("tablet-personalizado").isEmpty());
+        assertEquals(homonimo.getId(),usuarios.findByUsername("mesa1").orElseThrow().getId());assertEquals(2,usuarios.findByUsername("outra-mesa").orElseThrow().getMesa().getNumero());
+        assertEquals(10,saldo(a));assertEquals(0,pedidos.count());
+    }
+    @Test void X_conflitoFkDesconhecidoReverteCredencialEMesa() throws Exception {
+        credencial("tablet-personalizado",1);
+        jdbc.execute("create table dependencia_mesa_4c (id bigint primary key,mesa_id bigint not null,foreign key(mesa_id) references mesa(id)) engine=InnoDB");
+        try {
+            jdbc.update("insert into dependencia_mesa_4c values(1,?)",idMesa(1));var antes=snapshot();
+            var mvc=MockMvcBuilders.standaloneSetup(new MesaController(mesaService)).setControllerAdvice(new ApiExceptionHandler()).build();
+            mvc.perform(delete("/mesas/1")).andExpect(status().isConflict()).andExpect(jsonPath("$.mensagem").isNotEmpty());
+            assertEquals(antes,snapshot());assertTrue(usuarios.findByUsername("tablet-personalizado").isPresent());
+        } finally {jdbc.execute("drop table dependencia_mesa_4c");}
+    }
+    @Test void Y_exclusaoVersusAbertura() throws Exception {
+        credencial("tablet-personalizado",1);
+        var r=concorrer("mesa",idMesa(1),List.of(()->{mesaService.excluir(1);return "excluida";},()->abrir(1,a,1)));
+        assertEquals(1,sucessos(r));
+        if(mesas.findByNumero(1).isPresent()) {
+            assertEquals(1,pedidos.count());assertEquals(9,saldo(a));assertTrue(usuarios.findByUsername("tablet-personalizado").isPresent());
+            assertEquals(StatusMesa.OCUPADA,mesas.findByNumero(1).orElseThrow().getStatus());
+        } else {assertEquals(0,pedidos.count());assertEquals(10,saldo(a));assertTrue(usuarios.findByUsername("tablet-personalizado").isEmpty());}
+    }
+    @Test void Z_historicoIncoerenteNaoEReescrito() {
+        var p=abrir(1,a,1);long item=p.itens().get(0).id();
+        jdbc.update("update item_pedido set data_hora_conclusao='2026-01-01 12:00:00' where id=?",item);var antes=snapshot();
+        assertThrows(ConflitoException.class,()->service.atualizarStatusItem(item,StatusItemPedido.PRONTO));assertEquals(antes,snapshot());
+        jdbc.update("update item_pedido set status='PRONTO',data_hora_conclusao=null where id=?",item);antes=snapshot();
+        service.atualizarStatusItem(item,StatusItemPedido.PRONTO);assertEquals(antes,snapshot());
+    }
+    @Test void Z2_propostaD20ValidaSomenteSchemaEmBancoDescartavel() throws Exception {
+        credencial("autor-proposta",1);credencial("outro-autor",2);var p=abrir(1,a,1);
+        long autor=usuarios.findByUsername("autor-proposta").orElseThrow().getId();
+        long outro=usuarios.findByUsername("outro-autor").orElseThrow().getId();var antes=snapshot();
+        String ddl=java.nio.file.Files.readString(Path.of("..","Dados_SQL","fase4c","proposta_idempotencia.sql"));
+        jdbc.execute(ddl);
+        try {
+            assertEquals(2,jdbc.queryForObject("select count(*) from information_schema.referential_constraints where constraint_schema=database() and table_name='idempotencia_adicao'",Integer.class));
+            assertEquals(1,jdbc.queryForObject("select count(*) from information_schema.table_constraints where constraint_schema=database() and table_name='idempotencia_adicao' and constraint_name='uk_idempotencia_adicao'",Integer.class));
+            try(var c=ds.getConnection()) {
+                c.setAutoCommit(false);
+                try(var st=c.prepareStatement("insert into idempotencia_adicao(usuario_id,pedido_id,chave,payload_hash,resposta_json,status_http,criado_em,expira_em) values(?,?,?,?,?,200,?,?)")) {
+                    st.setLong(1,autor);st.setLong(2,p.id());st.setBytes(3,new byte[16]);st.setBytes(4,new byte[32]);st.setString(5,"{\"id\":1}");
+                    var data=LocalDateTime.of(2026,1,1,0,0);st.setTimestamp(6,Timestamp.valueOf(data));st.setTimestamp(7,Timestamp.valueOf(data.plusDays(7)));
+                    assertEquals(1,st.executeUpdate());assertEquals(1062,assertThrows(SQLException.class,st::executeUpdate).getErrorCode());
+                    st.setLong(1,outro);assertEquals(1,st.executeUpdate());
+                    st.setLong(1,-1);assertEquals(1452,assertThrows(SQLException.class,st::executeUpdate).getErrorCode());
+                    st.setLong(1,autor);st.setBytes(3,null);assertEquals(1048,assertThrows(SQLException.class,st::executeUpdate).getErrorCode());
+                    byte[] outraChave=new byte[16];outraChave[0]=1;st.setBytes(3,outraChave);
+                    st.setTimestamp(7,Timestamp.valueOf(data.minusDays(1)));assertEquals(3819,assertThrows(SQLException.class,st::executeUpdate).getErrorCode());
+                    st.setTimestamp(7,Timestamp.valueOf(data.plusDays(7)));st.setLong(2,-1);
+                    assertEquals(1452,assertThrows(SQLException.class,st::executeUpdate).getErrorCode());
+                    assertEquals(3819,assertThrows(SQLException.class,()->c.createStatement().executeUpdate("insert into idempotencia_adicao(usuario_id,pedido_id,chave,payload_hash,resposta_json,status_http,criado_em,expira_em) select usuario_id,pedido_id,unhex('02000000000000000000000000000000'),payload_hash,resposta_json,201,criado_em,expira_em from idempotencia_adicao limit 1")).getErrorCode());
+                    c.createStatement().executeUpdate("update produto set qtd_estoque=qtd_estoque-1 where id="+a.getId());
+                    c.rollback();
+                }
+            }
+            assertEquals(0,jdbc.queryForObject("select count(*) from idempotencia_adicao",Integer.class));assertEquals(antes,snapshot());
+        } finally {jdbc.execute("drop table idempotencia_adicao");}
+    }
+    private void credencial(String nome,int numero) {
+        var u=new Usuario();u.setUsername(nome);u.setSenha("hash-sintetico");u.setRole(RoleName.MESA);u.setMesa(mesas.findByNumero(numero).orElseThrow());usuarios.saveAndFlush(u);
+    }
     private List<Object> concorrer(String tabela,long id,List<Callable<Object>> tarefas) throws Exception {
         var pool=Executors.newFixedThreadPool(tarefas.size());var ready=new CountDownLatch(tarefas.size());var start=new CountDownLatch(1);
         try(var holder=ds.getConnection()) {
             holder.setAutoCommit(false);holder.createStatement().executeQuery("select id from "+tabela+" where id="+id+" for update").close();
             long owner;try(var rs=holder.createStatement().executeQuery("select connection_id()")){rs.next();owner=rs.getLong(1);}
             List<Future<Object>> futures=new ArrayList<>();
-            for(var task:tarefas) futures.add(pool.submit(()->{ready.countDown();aguardar(start);try{return task.call();}catch(ConflitoException e){return e;}catch(ResponseStatusException e){if(e.getStatusCode().value()!=400)throw e;return e;}}));
+            for(var task:tarefas) futures.add(pool.submit(()->{ready.countDown();aguardar(start);try{return task.call();}catch(ConflitoException e){return e;}catch(RecursoNaoEncontradoException e){return e;}catch(ResponseStatusException e){if(e.getStatusCode().value()!=400)throw e;return e;}}));
             assertTrue(ready.await(8,TimeUnit.SECONDS));start.countDown();
             long limit=System.nanoTime()+TimeUnit.SECONDS.toNanos(10);int waits=0;
             while(System.nanoTime()<limit) {
@@ -245,7 +383,7 @@ class ConcorrenciaMysqlTest {
         } finally {start.countDown();pool.shutdownNow();assertTrue(pool.awaitTermination(15,TimeUnit.SECONDS));}
     }
     private static void aguardar(CountDownLatch l) {try{if(!l.await(12,TimeUnit.SECONDS))throw new IllegalStateException("Timeout de sincronizacao");}catch(InterruptedException e){Thread.currentThread().interrupt();throw new IllegalStateException(e);}}
-    private long sucessos(List<Object> r){return r.stream().filter(v->!(v instanceof ConflitoException) && !(v instanceof ResponseStatusException)).count();}
+    private long sucessos(List<Object> r){return r.stream().filter(v->!(v instanceof ConflitoException) && !(v instanceof ResponseStatusException) && !(v instanceof RecursoNaoEncontradoException)).count();}
     private Produto produto(String nome,int preco,int estoque){var p=new Produto();p.setNome(nome);p.setCategoria(Categoria.PIZZAS);p.setAtivo(true);p.setPrecoBase(BigDecimal.valueOf(preco));p.setQtdEstoque(estoque);p.setDescricao(new DetalhesDescricao());return produtos.save(p);}
     private void estoque(Produto p,int valor){transacao().executeWithoutResult(s->jdbc.update("update produto set qtd_estoque=? where id=?",valor,p.getId()));}
     private long idMesa(int n){return mesas.findByNumero(n).orElseThrow().getId();}
@@ -254,7 +392,7 @@ class ConcorrenciaMysqlTest {
     private List<ItemPedidoRequestDTO> itens(Produto p,int n){return List.of(new ItemPedidoRequestDTO(p.getId(),n));}
     private PedidoResponseDTO abrir(int mesa,Produto p,int n){return service.abrirPedido(new PedidoRequestDTO(mesa,itens(p,n),null));}
     private TransactionTemplate transacao(){var t=new TransactionTemplate(tm);t.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);return t;}
-    private List<List<Map<String,Object>>> snapshot(){var r=new ArrayList<List<Map<String,Object>>>();for(String t:List.of("mesa","pedido","produto","item_pedido"))r.add(jdbc.queryForList("select * from "+t+" order by id"));return r;}
+    private List<List<Map<String,Object>>> snapshot(){var r=new ArrayList<List<Map<String,Object>>>();for(String t:List.of("mesa","pedido","produto","item_pedido","usuario","produto_ingredientes"))r.add(jdbc.queryForList("select * from "+t+" order by "+(t.equals("produto_ingredientes")?"produto_id,ingrediente":"id")));return r;}
     @Configuration @EnableTransactionManagement @EnableJpaRepositories(basePackageClasses=PedidoRepository.class)
     static class Config {
         @Bean DataSource dataSource() throws Exception {

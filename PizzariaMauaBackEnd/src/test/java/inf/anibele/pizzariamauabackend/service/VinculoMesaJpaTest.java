@@ -141,7 +141,7 @@ class VinculoMesaJpaTest {
             em.flush();
         });
 
-        assertThrows(DataIntegrityViolationException.class, () -> service.excluir(12));
+        assertThrows(ConflitoException.class, () -> service.excluir(12));
 
         Usuario preservado = usuarios.findByUsername("tablet-historico").orElseThrow();
         assertEquals(original.getId(), preservado.getId());

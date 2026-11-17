@@ -6,11 +6,9 @@ import inf.anibele.pizzariamauabackend.model.StatusMesa;
 import inf.anibele.pizzariamauabackend.service.MesaService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -60,15 +58,7 @@ public class MesaController {
 
     @DeleteMapping("/{numero}")
     public ResponseEntity<Void> excluir(@Positive @PathVariable Integer numero) {
-        try {
-            mesaService.excluir(numero);
-            return ResponseEntity.noContent().build();
-        } catch (DataIntegrityViolationException e) {
-            // Executa o plano de contingência: já que não pôde apagar devido aos pedidos, desativa logicamente.
-            mesaService.alterarAtivacao(numero, false);
-
-            // Retorna o status 409 (Conflict) com o texto para o Axios/React Query capturar no onError
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Não é possível excluir a mesa pois existem registros vinculados.");
-        }
+        mesaService.excluir(numero);
+        return ResponseEntity.noContent().build();
     }
 }

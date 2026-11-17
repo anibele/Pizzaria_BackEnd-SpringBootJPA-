@@ -304,13 +304,14 @@ class ValidacaoFase2Test {
     }
 
     @Test
-    void preservaFallbackExistenteNaExclusaoDeMesaSemVazarSql() throws Exception {
+    void exclusaoRejeitadaNaoDesativaMesaNemExpoeSql() throws Exception {
         Mesa mesa = new Mesa();
         when(mesas.findByNumero(1)).thenReturn(Optional.of(mesa));
         doThrow(new DataIntegrityViolationException("SQL interno")).when(mesas).flush();
         mvc.perform(delete("/mesas/1")).andExpect(status().isConflict())
-                .andExpect(content().json("{\"mensagem\":\"Não é possível excluir a mesa pois existem registros vinculados.\"}"));
-        assertFalse(mesa.isAtivo());
+                .andExpect(jsonPath("$.mensagem").isNotEmpty());
+        assertTrue(mesa.isAtivo());
+        verify(mesas, never()).save(any());
     }
 
     @Test

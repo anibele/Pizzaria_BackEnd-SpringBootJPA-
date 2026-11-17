@@ -196,21 +196,41 @@ public class PedidoService {
     // 2.5. Atualizar Status de um Item Específico na Cozinha
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public void atualizarStatusItem(Long itemId, StatusItemPedido novoStatus) {
-        ItemPedido item = itemPedidoRepository.findById(itemId)
-                .orElseThrow(() -> new RecursoNaoEncontradoException("Item do pedido não encontrado. ID: " + itemId));
-
-        if (item.getPedido() != null) {
-            bloquearPedido(item.getPedido());
+        if (novoStatus == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe um status de item valido.");
         }
+        ItemPedido item = itemPedidoRepository.findById(itemId)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Item do pedido nao encontrado. ID: " + itemId));
+        if (item.getPedido() == null) {
+            throw new ConflitoException("Item sem pedido associado. Revise a inconsistencia.");
+        }
+        Pedido pedido = bloquearPedido(item.getPedido());
         entityManager.detach(item);
         item = itemPedidoRepository.findByIdForUpdate(itemId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Item nao encontrado."));
-        item.setStatus(novoStatus);
+        if (item.getPedido() == null || !pedido.getId().equals(item.getPedido().getId())) {
+            throw new ConflitoException("O vinculo do item com o pedido esta inconsistente.");
+        }
+        if (pedido.getStatus() != StatusPedido.ABERTO && pedido.getStatus() != StatusPedido.AGUARDANDO_PAGAMENTO) {
+            throw new ConflitoException("Pedidos encerrados nao permitem alterar o preparo dos itens.");
+        }
+        StatusItemPedido atual = item.getStatus();
+        if (atual == novoStatus) return;
 
+        // O frontend atual conclui itens diretamente de PENDENTE para PRONTO.
+        boolean permitida = (atual == StatusItemPedido.PENDENTE
+                && (novoStatus == StatusItemPedido.EM_PREPARO || novoStatus == StatusItemPedido.PRONTO))
+                || (atual == StatusItemPedido.EM_PREPARO && novoStatus == StatusItemPedido.PRONTO);
+        if (!permitida) {
+            throw new ConflitoException("Transicao de status do item nao permitida.");
+        }
+        if (item.getDataHoraConclusao() != null) {
+            throw new ConflitoException("Item nao concluido possui data de conclusao. Revise o historico.");
+        }
+        item.setStatus(novoStatus);
         if (novoStatus == StatusItemPedido.PRONTO) {
             item.setDataHoraConclusao(LocalDateTime.now());
         }
-
         itemPedidoRepository.save(item);
     }
 

@@ -182,13 +182,19 @@ class PedidoServiceTest {
     }
 
     @Test
-    void itemLegadoSemPedidoPreservaComportamentoAnteriorSemNovaValidacaoD11() {
+    void itemLegadoSemPedidoRejeitaAlteracaoSemModificarDados() {
         ItemPedido item=new ItemPedido();item.setId(1L);
         when(itemPedidoRepository.findById(1L)).thenReturn(Optional.of(item));
-        when(itemPedidoRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(item));
-        service.atualizarStatusItem(1L,StatusItemPedido.PRONTO);
-        assertEquals(StatusItemPedido.PRONTO,item.getStatus());assertNotNull(item.getDataHoraConclusao());
-        verify(itemPedidoRepository).save(item);verifyNoInteractions(mesaRepository,pedidoRepository);
+        assertThrows(inf.anibele.pizzariamauabackend.exception.ConflitoException.class,
+                () -> service.atualizarStatusItem(1L,StatusItemPedido.PRONTO));
+        assertEquals(StatusItemPedido.PENDENTE,item.getStatus());assertNull(item.getDataHoraConclusao());
+        verify(itemPedidoRepository,never()).save(any());verifyNoInteractions(mesaRepository,pedidoRepository);
+    }
+
+    @Test
+    void statusNuloRetorna400SemConsultarOuAlterarDados() {
+        var erro=assertThrows(ResponseStatusException.class,()->service.atualizarStatusItem(1L,null));
+        assertEquals(HttpStatus.BAD_REQUEST,erro.getStatusCode());verifyNoInteractions(itemPedidoRepository,mesaRepository,pedidoRepository);
     }
 
     private void verificarEstadoOriginal() {

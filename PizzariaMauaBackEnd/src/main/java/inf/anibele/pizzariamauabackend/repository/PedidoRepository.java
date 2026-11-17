@@ -26,6 +26,8 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     // Busca os pedidos por status (crucial para a Cozinha ver apenas os pedidos ABERTOs)
     List<Pedido> findByStatus(StatusPedido status);
 
+    boolean existsByMesaId(Long mesaId);
+
     // Busca todos os pedidos de uma mesa específica
     List<Pedido> findByMesaNumero(Integer numeroMesa);
 

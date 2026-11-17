@@ -134,6 +134,9 @@ public class MesaService {
         entityManager.detach(mesa);
         mesa = mesaRepository.findByNumeroForUpdate(numero)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Recurso nao encontrado."));
+        if (pedidoRepository.existsByMesaId(mesa.getId())) {
+            throw new ConflitoException("Nao e possivel excluir a mesa pois existem registros vinculados.");
+        }
         try {
             var credencial = usuarioRepository.findByMesaId(mesa.getId());
             if (credencial.isPresent()) {
@@ -152,7 +155,7 @@ public class MesaService {
             mesaRepository.flush();
 
         } catch (DataIntegrityViolationException e) {
-            throw new DataIntegrityViolationException("Não é possível excluir a Mesa " + numero + " pois existem históricos de pedidos vinculados a ela.");
+            throw new ConflitoException("Nao e possivel excluir a mesa pois existem registros vinculados.");
         }
     }
 
