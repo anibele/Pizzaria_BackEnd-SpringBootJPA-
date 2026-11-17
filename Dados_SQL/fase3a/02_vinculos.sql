@@ -11,7 +11,8 @@ CREATE TEMPORARY TABLE tmp_pizzaria_auditoria_3a_vinculos (
 -- Mapeamento EXPLÍCITO da demonstração, nunca inferido de substring/regex.
 INSERT INTO tmp_pizzaria_auditoria_3a_vinculos (username, numero) VALUES
     ('mesa01', 1), ('mesa02', 2), ('mesa03', 3), ('mesa04', 4), ('mesa05', 5),
-    ('mesa06', 6), ('mesa07', 7), ('mesa08', 8), ('mesa09', 9), ('mesa10', 10);
+    ('mesa06', 6), ('mesa07', 7), ('mesa08', 8), ('mesa09', 9), ('mesa10', 10),
+    ('mesa11', 11);
 -- Contas personalizadas sem vínculo exigem decisões explícitas nesta lista.
 -- Não invente mesas nem remapeie contas que já possuam vínculo válido.
 

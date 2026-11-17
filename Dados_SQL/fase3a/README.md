@@ -8,6 +8,7 @@
 - Usuários MESA devem ter vínculo; demais perfis devem manter NULL. O código valida isso na persistência e o script 03 acrescenta a restrição no banco.
 - O CHECK `ck_usuario_mesa_perfil` exige explicitamente `role IS NOT NULL`, independentemente de a coluna já ter NOT NULL. Assim, perfis nulos são rejeitados mesmo em schema nullable, sem depender da aceitação de UNKNOWN pelo MySQL.
 - Uma mesa pode continuar sem credencial. Não há vínculo inverso nem alteração de pedidos.
+- O mapeamento aprovado contém onze associações explícitas: `mesa01` → mesa 1, seguindo os pares literais até `mesa11` → mesa 11. A conta `mesa11` foi incluída após aprovação do proprietário; o número nunca é calculado a partir do username. Contas adicionais continuam exigindo aprovação individual do mapeamento.
 - Contas MESA antigas sem vínculo podem autenticar, mas recebem 403 nas operações de mesa/pedido protegidas. JWT, senhas e formato do login não mudaram.
 - Novas credenciais recebem vínculo no cadastro. O seed cria mesas antes dos usuários e vincula somente contas novas; contas antigas e conflitos geram aviso e ficam intactos. D02/D15 não foram corrigidos.
 
@@ -22,7 +23,7 @@
 
 1. **Schema:** se `mesa_id` não existir e `mesa.id` for BIGINT assinado, revisar e executar `01_schema.sql`. DDL MySQL tem commit implícito: não prometer rollback de schema. Não iniciar a nova aplicação antes de preparar e conferir o schema.
 2. **Schema já existente:** não reaplicar o script 01. Pode ter sido criado por `ddl-auto=update`. Inspecionar tipo, FK, unicidade, nulos e duplicidades antes de qualquer correção. Conferir índices e constraints com `SHOW CREATE TABLE usuario` e `information_schema`. Se tipo, índices ou vínculos divergirem, interromper e preparar ajuste específico; não apagar coluna nem recriá-la.
-3. **Simulação:** executar `02_vinculos.sql` mantendo `@fase3a_aplicar = 0`. Só são gravados dados temporários da sessão; o UPDATE persistente tem guarda falsa. Examinar a tabela de mapeamento, ocupantes, contas ausentes e bloqueios. A lista contém os dez pares literais aprovados; não deriva mesa de username.
+3. **Simulação:** executar `02_vinculos.sql` mantendo `@fase3a_aplicar = 0`. Só são gravados dados temporários da sessão; o UPDATE persistente tem guarda falsa. Examinar a tabela de mapeamento, ocupantes, contas ausentes e bloqueios. A lista contém os onze pares literais aprovados; não deriva mesa de username.
 4. **Conflitos:** qualquer vínculo diferente, perfil incompatível, mesa esperada ausente, vínculo órfão, credencial concorrente ou conta MESA sem mapeamento bloqueia o lote inteiro. Contas inexistentes são apenas listadas e nunca criadas. Contas personalizadas sem vínculo exigem adicionar um par literal à lista após decisão do proprietário. Não sobrescrever vínculos válidos; em caso de conflito com os exemplos demonstrativos, parar para decisão explícita.
 5. **Aplicação:** somente após revisão e simulação sem bloqueios, alterar a variável para 1 numa cópia revisada do script 02 e executar na mesma janela exclusiva. O único UPDATE de dados modifica `usuario.mesa_id` NULL; não muda senhas, usernames, perfis, mesas ou histórico. Erro de FK/UNIQUE deve interromper a execução; fechar a sessão/ROLLBACK antes de nova tentativa. A tabela temporária desaparece ao fechar a conexão.
 6. **Verificação:** repetir a simulação; os pares existentes devem apontar à mesa aprovada, `bloqueios=0` e `associacoes_alteradas=0`. Confirmar que todos os MESA têm vínculo, nenhum outro perfil o tem, não há mesa com duas credenciais, e os demais campos/contagens permanecem iguais.
@@ -37,9 +38,11 @@ D12 (desativação após exclusão frustrada), concorrência, estados de pedidos
 
 ## Ensaio desta implementação
 
-Os três scripts foram executados em MySQL Community 8.4.9 descartável, com schema mínimo equivalente e dados sintéticos. A instância foi inicializada com `--no-defaults`, datadir exclusivo em `target`, bind em localhost e porta exclusiva; `@@datadir` foi conferido antes de criar o banco sintético. O processo foi encerrado ao final. Nenhuma conexão com o banco de trabalho foi utilizada.
+No ensaio inicial, anterior à inclusão de `mesa11`, os três scripts foram executados em MySQL Community 8.4.9 descartável, com schema mínimo equivalente e dados sintéticos. A instância foi inicializada com `--no-defaults`, datadir exclusivo em `target`, bind em localhost e porta exclusiva; `@@datadir` foi conferido antes de criar o banco sintético. O processo foi encerrado ao final. Nenhuma conexão com o banco de trabalho foi utilizada.
 
 Passaram dez verificações: simulação sem alteração; bloqueio integral por vínculo conflitante, mesa ocupada, conta sem mapa, perfil conflitante e mesa esperada ausente; aplicação dos dez pares preservando senhas e vínculo personalizado válido; repetição sem sobrescrita; preservação de mesas/pedidos/itens; e rejeição por UNIQUE, CHECK e FK.
+
+Após a inclusão aprovada de `mesa11`, passaram 12 grupos de verificações em MySQL 8.0.42 descartável, com onze mesas e onze usuários MESA sintéticos: simulação com onze candidatas, zero conflitos, zero contas sem mapa e zero alterações; aplicação das onze associações preservando usernames, senhas, mesas, pedidos e itens; reexecução sem alterações; seis bloqueios integrais (vínculo incorreto de `mesa11`, mesa 11 ocupada, mesa 11 ausente, perfil incompatível, outra conta MESA sem mapa e vínculo inconsistente em outra mesa); e FK, UNIQUE e CHECK. A instância usou diretório e porta exclusivos, com `@@datadir` confirmado, e foi encerrada ao final. Não houve acesso ao banco de trabalho.
 
 Isso valida a execução dos scripts nesse cenário sintético, **não** a compatibilidade do schema real nem a associação das contas existentes. Antes da implantação, continuam obrigatórios backup, inspeção, ensaio numa cópia real e aprovação dos mapeamentos.
 
