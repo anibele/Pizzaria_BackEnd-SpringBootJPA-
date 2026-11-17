@@ -7,7 +7,10 @@ import inf.anibele.pizzariamauabackend.repository.UsuarioRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -16,11 +19,15 @@ import java.util.List;
 @Configuration
 public class DataInitializer {
 
+    private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
+
     private static final String BASE_URL =
             "https://raw.githubusercontent.com/anibele/Pizzaria_FrontEnd-React-Vite-Axios/refs/heads/main/imagens_cardapio/";
 
     @Bean
-    public CommandLineRunner carregarUsuarios(UsuarioRepository repository, PasswordEncoder passwordEncoder) {
+    @Order(2)
+    public CommandLineRunner carregarUsuarios(UsuarioRepository repository, PasswordEncoder passwordEncoder,
+                                             MesaRepository mesaRepository) {
         return args -> {
             if (repository.findByUsername("gerente1").isEmpty()) {
                 Usuario gerente = new Usuario();
@@ -50,18 +57,31 @@ public class DataInitializer {
                 String numero = String.format("%02d", i);
                 String username = "mesa" + numero;
 
-                if (repository.findByUsername(username).isEmpty()) {
-                    Usuario mesa = new Usuario();
-                    mesa.setUsername(username);
-                    mesa.setSenha(passwordEncoder.encode(username));
-                    mesa.setRole(RoleName.MESA);
-                    repository.save(mesa);
+                Mesa mesa = mesaRepository.findByNumero(i)
+                        .orElseThrow(() -> new IllegalStateException("As mesas devem ser carregadas antes das credenciais."));
+                var existente = repository.findByUsername(username);
+                if (existente.isPresent()) {
+                    Usuario usuario = existente.get();
+                    if (usuario.getRole() != RoleName.MESA || usuario.getMesa() == null
+                            || !mesa.getId().equals(usuario.getMesa().getId())) {
+                        log.warn("Credencial {} exige revisão pela migração Fase 3A; vínculo existente preservado.", username);
+                    }
+                } else if (repository.findByMesaId(mesa.getId()).isPresent()) {
+                    log.warn("Mesa {} já possui credencial; usuário demonstrativo {} não será criado.", i, username);
+                } else {
+                    Usuario usuario = new Usuario();
+                    usuario.setUsername(username);
+                    usuario.setSenha(passwordEncoder.encode(username));
+                    usuario.setRole(RoleName.MESA);
+                    usuario.setMesa(mesa);
+                    repository.save(usuario);
                 }
             }
         };
     }
 
     @Bean
+    @Order(1)
     public CommandLineRunner carregarMesas(MesaRepository mesaRepository) {
         return args -> {
             List<Mesa> mesas = new ArrayList<>();

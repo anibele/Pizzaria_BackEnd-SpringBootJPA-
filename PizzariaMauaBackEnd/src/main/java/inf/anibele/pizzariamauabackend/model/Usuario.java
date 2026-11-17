@@ -1,7 +1,11 @@
 package inf.anibele.pizzariamauabackend.model;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.constraints.AssertTrue;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -26,6 +30,18 @@ public class Usuario implements UserDetails {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private RoleName role;
+
+    @OneToOne
+    @JoinColumn(name = "mesa_id", unique = true, foreignKey = @ForeignKey(name = "fk_usuario_mesa"))
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private Mesa mesa;
+
+    @JsonIgnore
+    @AssertTrue(message = "Usuários MESA precisam de uma mesa; os demais perfis não devem ter esse vínculo.")
+    public boolean isVinculoMesaValido() {
+        return role != null && (role == RoleName.MESA ? mesa != null : mesa == null);
+    }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {

@@ -1,6 +1,7 @@
 package inf.anibele.pizzariamauabackend.controller;
 
 import inf.anibele.pizzariamauabackend.mapper.ItemPedidoMapper;
+import inf.anibele.pizzariamauabackend.security.AutorizacaoMesa;
 import inf.anibele.pizzariamauabackend.exception.ApiExceptionHandler;
 import inf.anibele.pizzariamauabackend.mapper.PedidoMapper;
 import inf.anibele.pizzariamauabackend.model.*;
@@ -44,7 +45,7 @@ class PedidoControllerTest {
         produtoRepository = mock(ProdutoRepository.class);
         itemPedidoRepository = mock(ItemPedidoRepository.class);
         PedidoService service = new PedidoService(pedidoRepository, mesaRepository, produtoRepository,
-                itemPedidoRepository, new PedidoMapper(new ItemPedidoMapper()));
+                itemPedidoRepository, new PedidoMapper(new ItemPedidoMapper()), mock(AutorizacaoMesa.class));
         mvc = MockMvcBuilders.standaloneSetup(new PedidoController(service))
                 .setControllerAdvice(new ApiExceptionHandler()).build();
     }

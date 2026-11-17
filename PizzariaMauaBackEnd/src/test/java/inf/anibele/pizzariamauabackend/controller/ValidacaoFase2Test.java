@@ -2,6 +2,7 @@ package inf.anibele.pizzariamauabackend.controller;
 
 import inf.anibele.pizzariamauabackend.exception.ApiExceptionHandler;
 import inf.anibele.pizzariamauabackend.mapper.*;
+import inf.anibele.pizzariamauabackend.security.AutorizacaoMesa;
 import inf.anibele.pizzariamauabackend.model.*;
 import inf.anibele.pizzariamauabackend.repository.*;
 import inf.anibele.pizzariamauabackend.service.*;
@@ -53,9 +54,9 @@ class ValidacaoFase2Test {
         itens = mock(ItemPedidoRepository.class);
         encoder = mock(PasswordEncoder.class);
         ProdutoService produtoService = new ProdutoService(produtos, new ProdutoMapper());
-        MesaService mesaService = new MesaService(mesas, usuarios, encoder, new MesaMapper());
+        MesaService mesaService = new MesaService(mesas, usuarios, encoder, new MesaMapper(), mock(AutorizacaoMesa.class));
         PedidoService pedidoService = new PedidoService(pedidos, mesas, produtos, itens,
-                new PedidoMapper(new ItemPedidoMapper()));
+                new PedidoMapper(new ItemPedidoMapper()), mock(AutorizacaoMesa.class));
         mvc = MockMvcBuilders.standaloneSetup(new ProdutoController(produtoService),
                         new MesaController(mesaService), new PedidoController(pedidoService))
                 .setControllerAdvice(new ApiExceptionHandler()).build();

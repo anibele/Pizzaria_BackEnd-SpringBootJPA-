@@ -9,6 +9,7 @@ import inf.anibele.pizzariamauabackend.model.Usuario;
 import inf.anibele.pizzariamauabackend.model.RoleName;
 import inf.anibele.pizzariamauabackend.repository.MesaRepository;
 import inf.anibele.pizzariamauabackend.repository.UsuarioRepository;
+import inf.anibele.pizzariamauabackend.security.AutorizacaoMesa;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -26,13 +27,15 @@ public class MesaService {
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
     private final MesaMapper mesaMapper;
+    private final AutorizacaoMesa autorizacaoMesa;
 
     public MesaService(MesaRepository mesaRepository, UsuarioRepository usuarioRepository,
-                       PasswordEncoder passwordEncoder, MesaMapper mesaMapper) {
+                       PasswordEncoder passwordEncoder, MesaMapper mesaMapper, AutorizacaoMesa autorizacaoMesa) {
         this.mesaRepository = mesaRepository;
         this.usuarioRepository = usuarioRepository;
         this.passwordEncoder = passwordEncoder;
         this.mesaMapper = mesaMapper;
+        this.autorizacaoMesa = autorizacaoMesa;
     }
 
     @Transactional
@@ -55,6 +58,7 @@ public class MesaService {
             usuarioMesa.setUsername(dto.username());
             usuarioMesa.setSenha(passwordEncoder.encode(dto.password()));
             usuarioMesa.setRole(RoleName.MESA);
+            usuarioMesa.setMesa(mesa);
             usuarioRepository.save(usuarioMesa);
         }
 
@@ -74,6 +78,7 @@ public class MesaService {
     }
 
     public MesaResponseDTO buscarPorNumero(Integer numero) {
+        autorizacaoMesa.verificarMesa(numero);
         Mesa mesa = mesaRepository.findByNumero(numero)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
         return mesaMapper.toResponseDTO(mesa);
@@ -103,12 +108,18 @@ public class MesaService {
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
 
         try {
-            // Remove a mesa física
-            mesaRepository.delete(mesa);
+            var credencial = usuarioRepository.findByMesaId(mesa.getId());
+            if (credencial.isPresent()) {
+                Usuario usuario = credencial.get();
+                if (usuario.getRole() != RoleName.MESA) {
+                    throw new ConflitoException("A mesa possui um vínculo de usuário incompatível. Revise a associação antes de excluir.");
+                }
+                usuarioRepository.delete(usuario);
+                // Remove a FK da credencial antes da mesa; uma falha posterior reverte ambos.
+                usuarioRepository.flush();
+            }
 
-            // Regra de limpeza do usuário associado
-            String usernameProvavel = "mesa" + numero;
-            usuarioRepository.findByUsername(usernameProvavel).ifPresent(usuarioRepository::delete);
+            mesaRepository.delete(mesa);
 
             // Força o Hibernate a executar o delete no banco AGORA para validar Constraints
             mesaRepository.flush();

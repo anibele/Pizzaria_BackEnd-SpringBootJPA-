@@ -9,6 +9,7 @@ import inf.anibele.pizzariamauabackend.repository.MesaRepository;
 import inf.anibele.pizzariamauabackend.repository.PedidoRepository;
 import inf.anibele.pizzariamauabackend.repository.ProdutoRepository;
 import inf.anibele.pizzariamauabackend.repository.ItemPedidoRepository;
+import inf.anibele.pizzariamauabackend.security.AutorizacaoMesa;
 import jakarta.transaction.Transactional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,22 +35,25 @@ public class PedidoService {
     private final ProdutoRepository produtoRepository;
     private final ItemPedidoRepository itemPedidoRepository;
     private final PedidoMapper pedidoMapper;
+    private final AutorizacaoMesa autorizacaoMesa;
 
     public PedidoService(PedidoRepository pedidoRepository,
                          MesaRepository mesaRepository,
                          ProdutoRepository produtoRepository,
                          ItemPedidoRepository itemPedidoRepository,
-                         PedidoMapper pedidoMapper) {
+                         PedidoMapper pedidoMapper, AutorizacaoMesa autorizacaoMesa) {
         this.pedidoRepository = pedidoRepository;
         this.mesaRepository = mesaRepository;
         this.produtoRepository = produtoRepository;
         this.itemPedidoRepository = itemPedidoRepository;
         this.pedidoMapper = pedidoMapper;
+        this.autorizacaoMesa = autorizacaoMesa;
     }
 
     // 1. Abrir um novo pedido (Cliente sentou e pediu os primeiros itens)
     @Transactional
     public PedidoResponseDTO abrirPedido(PedidoRequestDTO dto) {
+        autorizacaoMesa.verificarMesa(dto.numeroMesa());
         Map<Long, Produto> produtos = validarItens(dto.itens());
         Mesa mesa = mesaRepository.findByNumero(dto.numeroMesa())
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada: " + dto.numeroMesa()));
@@ -103,9 +107,12 @@ public class PedidoService {
     // 2. Adicionar mais itens a um pedido já aberto
     @Transactional
     public PedidoResponseDTO adicionarItens(Long pedidoId, List<ItemPedidoRequestDTO> novosItensDto) {
+        autorizacaoMesa.verificarVinculo();
         Map<Long, Produto> produtos = validarItens(novosItensDto);
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
+
+        autorizacaoMesa.verificarMesa(pedido.getMesa());
 
         if (pedido.getStatus() != StatusPedido.ABERTO) {
             throw new ConflitoException("Apenas pedidos ABERTOS podem receber novos itens.");
@@ -188,8 +195,11 @@ public class PedidoService {
     // 3. Solicitação de Fechamento pelo Cliente (Área do Cliente - Encerramento no Tablet)
     @Transactional
     public PedidoResponseDTO finalizarPedido(Long pedidoId, String formaPagamento) {
+        autorizacaoMesa.verificarVinculo();
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
+
+        autorizacaoMesa.verificarMesa(pedido.getMesa());
 
         if (pedido.getStatus() != StatusPedido.ABERTO) {
             throw new ConflitoException("Apenas pedidos ABERTOS podem solicitar fechamento. Status atual: " + pedido.getStatus());
@@ -232,6 +242,7 @@ public class PedidoService {
 
     // 5. Buscar pedido ativo de uma mesa específica
     public PedidoResponseDTO buscarPedidoAbertoDaMesa(Integer numeroMesa) {
+        autorizacaoMesa.verificarMesa(numeroMesa);
         List<Pedido> pedidos = pedidoRepository.findByMesaNumeroAndStatusIn(
                 numeroMesa,
                 List.of(StatusPedido.ABERTO, StatusPedido.AGUARDANDO_PAGAMENTO)

@@ -3,6 +3,7 @@ package inf.anibele.pizzariamauabackend.service;
 import inf.anibele.pizzariamauabackend.dto.ItemPedidoRequestDTO;
 import inf.anibele.pizzariamauabackend.dto.PedidoRequestDTO;
 import inf.anibele.pizzariamauabackend.mapper.ItemPedidoMapper;
+import inf.anibele.pizzariamauabackend.security.AutorizacaoMesa;
 import inf.anibele.pizzariamauabackend.mapper.PedidoMapper;
 import inf.anibele.pizzariamauabackend.model.*;
 import inf.anibele.pizzariamauabackend.repository.*;
@@ -43,7 +44,7 @@ class PedidoServiceTest {
     @BeforeEach
     void preparar() {
         service = new PedidoService(pedidoRepository, mesaRepository, produtoRepository,
-                itemPedidoRepository, new PedidoMapper(new ItemPedidoMapper()));
+                itemPedidoRepository, new PedidoMapper(new ItemPedidoMapper()), mock(AutorizacaoMesa.class));
         produto = new Produto();
         produto.setId(1L);
         produto.setNome("Pizza");
