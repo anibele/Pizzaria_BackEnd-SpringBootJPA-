@@ -58,9 +58,12 @@ public class PedidoService {
         Mesa mesa = mesaRepository.findByNumero(dto.numeroMesa())
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada: " + dto.numeroMesa()));
 
-        List<Pedido> pedidosAbertos = pedidoRepository.findByMesaNumeroAndStatus(mesa.getNumero(), StatusPedido.ABERTO);
-        if (!pedidosAbertos.isEmpty()) {
-            throw new ConflitoException("A mesa " + mesa.getNumero() + " já possui um pedido em aberto. Adicione itens ao pedido existente.");
+        List<Pedido> pedidosAtivos = pedidoRepository.findAtivosByMesaNumero(mesa.getNumero());
+        if (!pedidosAtivos.isEmpty()) {
+            throw new ConflitoException("A mesa já possui um pedido ativo.");
+        }
+        if (!mesa.isAtivo() || mesa.getStatus() != StatusMesa.LIVRE) {
+            throw new ConflitoException("A abertura exige uma mesa ativa e LIVRE. Revise a disponibilidade da mesa.");
         }
 
         Pedido pedido = new Pedido();
@@ -205,6 +208,8 @@ public class PedidoService {
             throw new ConflitoException("Apenas pedidos ABERTOS podem solicitar fechamento. Status atual: " + pedido.getStatus());
         }
 
+        validarPedidoAtivoUnico(pedido);
+
         // Muda apenas o pedido para AGUARDANDO_PAGAMENTO. A mesa continua OCUPADA!
         pedido.setStatus(StatusPedido.AGUARDANDO_PAGAMENTO);
         pedido.setFormaPagamento(formaPagamento);
@@ -222,6 +227,8 @@ public class PedidoService {
         if (pedido.getStatus() != StatusPedido.AGUARDANDO_PAGAMENTO) {
             throw new ConflitoException("Este pedido não está aguardando pagamento. Status atual: " + pedido.getStatus());
         }
+
+        validarPedidoAtivoUnico(pedido);
 
         pedido.setStatus(StatusPedido.FINALIZADO);
 
@@ -243,14 +250,29 @@ public class PedidoService {
     // 5. Buscar pedido ativo de uma mesa específica
     public PedidoResponseDTO buscarPedidoAbertoDaMesa(Integer numeroMesa) {
         autorizacaoMesa.verificarMesa(numeroMesa);
-        List<Pedido> pedidos = pedidoRepository.findByMesaNumeroAndStatusIn(
-                numeroMesa,
-                List.of(StatusPedido.ABERTO, StatusPedido.AGUARDANDO_PAGAMENTO)
-        );
+        List<Pedido> pedidos = pedidoRepository.findAtivosByMesaNumero(numeroMesa);
         if (pedidos.isEmpty()) {
             throw new RecursoNaoEncontradoException("Nenhum pedido em aberto para a mesa " + numeroMesa);
         }
+        if (pedidos.size() > 1) {
+            throw new ConflitoException("A mesa possui múltiplos pedidos ativos. Revise a inconsistência antes de continuar.");
+        }
+        validarMesaOcupada(pedidos.get(0).getMesa());
         return pedidoMapper.toResponseDTO(pedidos.get(0));
+    }
+
+    private void validarPedidoAtivoUnico(Pedido pedido) {
+        List<Pedido> ativos = pedidoRepository.findAtivosByMesaNumero(pedido.getMesa().getNumero());
+        if (ativos.size() != 1 || !pedido.getId().equals(ativos.get(0).getId())) {
+            throw new ConflitoException("A conta ativa da mesa está inconsistente. Revise os pedidos antes de continuar.");
+        }
+        validarMesaOcupada(pedido.getMesa());
+    }
+
+    private void validarMesaOcupada(Mesa mesa) {
+        if (!mesa.isAtivo() || mesa.getStatus() != StatusMesa.OCUPADA) {
+            throw new ConflitoException("A mesa de um pedido ativo deve estar ativa e OCUPADA. Revise a inconsistência.");
+        }
     }
 
     // 6. Listar Pedidos Concluídos/Finalizados de uma data específica (Área do Arquivo do Caixa)

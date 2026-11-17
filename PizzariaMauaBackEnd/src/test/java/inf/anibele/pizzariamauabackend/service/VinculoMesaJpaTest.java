@@ -204,9 +204,10 @@ class VinculoMesaJpaTest {
         @Bean PlatformTransactionManager transactionManager(EntityManagerFactory emf) {
             return new JpaTransactionManager(emf);
         }
+        @Bean PedidoRepository pedidos() { return mock(PedidoRepository.class); }
         @Bean PasswordEncoder passwordEncoder() { return spy(new BCryptPasswordEncoder()); }
-        @Bean MesaService mesaService(MesaRepository mesas, UsuarioRepository usuarios, PasswordEncoder encoder) {
-            return new MesaService(mesas, usuarios, encoder, new MesaMapper(), new AutorizacaoMesa());
+        @Bean MesaService mesaService(MesaRepository mesas, UsuarioRepository usuarios, PasswordEncoder encoder, PedidoRepository pedidos) {
+            return new MesaService(mesas, usuarios, encoder, new MesaMapper(), new AutorizacaoMesa(), pedidos);
         }
     }
 }

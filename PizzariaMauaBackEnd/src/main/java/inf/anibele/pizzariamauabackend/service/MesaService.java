@@ -9,6 +9,7 @@ import inf.anibele.pizzariamauabackend.model.Usuario;
 import inf.anibele.pizzariamauabackend.model.RoleName;
 import inf.anibele.pizzariamauabackend.repository.MesaRepository;
 import inf.anibele.pizzariamauabackend.repository.UsuarioRepository;
+import inf.anibele.pizzariamauabackend.repository.PedidoRepository;
 import inf.anibele.pizzariamauabackend.security.AutorizacaoMesa;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -28,14 +29,17 @@ public class MesaService {
     private final PasswordEncoder passwordEncoder;
     private final MesaMapper mesaMapper;
     private final AutorizacaoMesa autorizacaoMesa;
+    private final PedidoRepository pedidoRepository;
 
     public MesaService(MesaRepository mesaRepository, UsuarioRepository usuarioRepository,
-                       PasswordEncoder passwordEncoder, MesaMapper mesaMapper, AutorizacaoMesa autorizacaoMesa) {
+                       PasswordEncoder passwordEncoder, MesaMapper mesaMapper, AutorizacaoMesa autorizacaoMesa,
+                       PedidoRepository pedidoRepository) {
         this.mesaRepository = mesaRepository;
         this.usuarioRepository = usuarioRepository;
         this.passwordEncoder = passwordEncoder;
         this.mesaMapper = mesaMapper;
         this.autorizacaoMesa = autorizacaoMesa;
+        this.pedidoRepository = pedidoRepository;
     }
 
     @Transactional
@@ -89,6 +93,10 @@ public class MesaService {
         Mesa mesa = mesaRepository.findByNumero(numero)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
 
+        boolean possuiPedidoAtivo = possuiPedidoAtivoConsistente(mesa);
+        if (possuiPedidoAtivo && status != StatusMesa.OCUPADA) {
+            throw new ConflitoException("Uma mesa com pedido ativo deve permanecer OCUPADA.");
+        }
         mesa.setStatus(status);
         mesaRepository.save(mesa);
     }
@@ -98,6 +106,10 @@ public class MesaService {
         Mesa mesa = mesaRepository.findByNumero(numero)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada com o número: " + numero));
 
+        boolean possuiPedidoAtivo = possuiPedidoAtivoConsistente(mesa);
+        if (possuiPedidoAtivo && !ativo) {
+            throw new ConflitoException("Não é possível desativar uma mesa com pedido ativo.");
+        }
         mesa.setAtivo(ativo);
         mesaRepository.save(mesa);
     }
@@ -127,5 +139,14 @@ public class MesaService {
         } catch (DataIntegrityViolationException e) {
             throw new DataIntegrityViolationException("Não é possível excluir a Mesa " + numero + " pois existem históricos de pedidos vinculados a ela.");
         }
+    }
+
+    private boolean possuiPedidoAtivoConsistente(Mesa mesa) {
+        var ativos = pedidoRepository.findAtivosByMesaNumero(mesa.getNumero());
+        if (ativos.size() > 1 || (!ativos.isEmpty()
+                && (!mesa.isAtivo() || mesa.getStatus() != StatusMesa.OCUPADA))) {
+            throw new ConflitoException("A mesa e seus pedidos ativos estão inconsistentes. Revise os registros antes de continuar.");
+        }
+        return !ativos.isEmpty();
     }
 }

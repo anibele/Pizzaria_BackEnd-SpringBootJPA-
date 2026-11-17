@@ -28,6 +28,11 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     // Busca pedidos de uma mesa que estão em qualquer um dos status fornecidos
     List<Pedido> findByMesaNumeroAndStatusIn(Integer numero, List<StatusPedido> status);
 
+    default List<Pedido> findAtivosByMesaNumero(Integer numero) {
+        return findByMesaNumeroAndStatusIn(numero,
+                List.of(StatusPedido.ABERTO, StatusPedido.AGUARDANDO_PAGAMENTO));
+    }
+
     // Busca todos os pedidos de um determinado status dentro de um intervalo de tempo (início ao fim do dia)
     List<Pedido> findByStatusAndDataHoraBetween(StatusPedido status, LocalDateTime start, LocalDateTime end);
 

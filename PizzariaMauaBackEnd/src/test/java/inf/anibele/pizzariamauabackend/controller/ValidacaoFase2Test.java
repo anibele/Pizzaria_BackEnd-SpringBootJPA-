@@ -54,7 +54,7 @@ class ValidacaoFase2Test {
         itens = mock(ItemPedidoRepository.class);
         encoder = mock(PasswordEncoder.class);
         ProdutoService produtoService = new ProdutoService(produtos, new ProdutoMapper());
-        MesaService mesaService = new MesaService(mesas, usuarios, encoder, new MesaMapper(), mock(AutorizacaoMesa.class));
+        MesaService mesaService = new MesaService(mesas, usuarios, encoder, new MesaMapper(), mock(AutorizacaoMesa.class), pedidos);
         PedidoService pedidoService = new PedidoService(pedidos, mesas, produtos, itens,
                 new PedidoMapper(new ItemPedidoMapper()), mock(AutorizacaoMesa.class));
         mvc = MockMvcBuilders.standaloneSetup(new ProdutoController(produtoService),
@@ -261,7 +261,7 @@ class ValidacaoFase2Test {
 
     @Test
     void falhaDeRepositoryNaConsultaAtivaRetorna500SemExporDetalhes() throws Exception {
-        when(pedidos.findByMesaNumeroAndStatusIn(any(), any()))
+        when(pedidos.findAtivosByMesaNumero(any()))
                 .thenThrow(new DataAccessResourceFailureException("SQL credencial=segredo"));
         mvc.perform(get("/pedidos/mesa/1/aberto")).andExpect(status().isInternalServerError())
                 .andExpect(content().json("{\"mensagem\":\"Não foi possível concluir a operação. Tente novamente mais tarde.\"}"));

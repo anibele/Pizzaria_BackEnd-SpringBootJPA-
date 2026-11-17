@@ -40,7 +40,7 @@ class ProtecaoVinculoMesaTest {
         when(mesas.findByNumero(1)).thenReturn(Optional.of(mesa));
         when(usuarios.findByMesaId(1L)).thenReturn(Optional.of(usuario));
         MesaService service = new MesaService(mesas, usuarios, mock(PasswordEncoder.class),
-                new MesaMapper(), new AutorizacaoMesa());
+                new MesaMapper(), new AutorizacaoMesa(), mock(inf.anibele.pizzariamauabackend.repository.PedidoRepository.class));
 
         assertThrows(ConflitoException.class, () -> service.excluir(1));
 

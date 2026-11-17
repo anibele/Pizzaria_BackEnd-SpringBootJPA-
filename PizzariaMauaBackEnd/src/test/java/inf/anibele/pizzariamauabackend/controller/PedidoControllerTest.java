@@ -108,6 +108,7 @@ class PedidoControllerTest {
         Produto produto = produto();
         Mesa mesa = new Mesa();
         mesa.setNumero(1);
+        mesa.setStatus(StatusMesa.LIVRE);
         Pedido pedido = new Pedido();
         pedido.setId(7L);
         pedido.setMesa(mesa);

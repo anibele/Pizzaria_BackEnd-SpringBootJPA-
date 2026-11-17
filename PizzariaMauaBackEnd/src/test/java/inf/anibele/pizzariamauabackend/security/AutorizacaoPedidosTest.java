@@ -94,7 +94,7 @@ class AutorizacaoPedidosTest {
             long id = invocation.getArgument(0);
             return id == 11 ? Optional.of(pedido1) : id == 22 ? Optional.of(pedido2) : Optional.empty();
         });
-        when(pedidos.findByMesaNumeroAndStatusIn(anyInt(), any())).thenAnswer(invocation ->
+        when(pedidos.findAtivosByMesaNumero(anyInt())).thenAnswer(invocation ->
                 invocation.<Integer>getArgument(0) == 1 ? List.of(pedido1) : List.of(pedido2));
         when(produtos.findByIdAndAtivoTrue(1L)).thenReturn(Optional.of(produto));
         when(pedidos.save(any(Pedido.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -114,6 +114,13 @@ class AutorizacaoPedidosTest {
     @ParameterizedTest(name = "{0} mesa={1} operacao={2} permitido={3}")
     @MethodSource("acessos")
     void aplicaTitularidadeComFiltroESevicesReais(String perfil, int numero, String operacao, boolean permitido) throws Exception {
+        // Abertura usa mesa livre sem conta; os demais cenarios usam conta ativa coerente.
+        if (operacao.equals("ABRIR")) {
+            when(pedidos.findAtivosByMesaNumero(anyInt())).thenReturn(List.of());
+        } else {
+            mesa1.setStatus(StatusMesa.OCUPADA);
+            mesa2.setStatus(StatusMesa.OCUPADA);
+        }
         long id = numero == 1 ? 11L : 22L;
         var requisicao = switch (operacao) {
             case "CONSULTAR" -> get("/pedidos/mesa/" + numero + "/aberto");
@@ -139,14 +146,14 @@ class AutorizacaoPedidosTest {
                 assertEquals(new BigDecimal("50.00"), pedido.getFaturamento());
                 assertTrue(pedido.getItens().isEmpty());
                 assertEquals(StatusPedido.ABERTO, pedido.getStatus());
-                assertEquals(StatusMesa.LIVRE, pedido.getMesa().getStatus());
+                assertEquals(operacao.equals("ABRIR") ? StatusMesa.LIVRE : StatusMesa.OCUPADA, pedido.getMesa().getStatus());
             }
         }
     }
 
     @Test
     void ausenciaRealContinua404ParaUsuarioVinculado() throws Exception {
-        when(pedidos.findByMesaNumeroAndStatusIn(eq(1), any())).thenReturn(List.of());
+        when(pedidos.findAtivosByMesaNumero(1)).thenReturn(List.of());
         mvc.perform(get("/pedidos/mesa/1/aberto").header("Authorization", "Bearer mesa01"))
                 .andExpect(status().isNotFound()).andExpect(content().string(""));
         mvc.perform(patch("/pedidos/999/finalizar?formaPagamento=PIX").header("Authorization", "Bearer mesa01"))
@@ -165,6 +172,51 @@ class AutorizacaoPedidosTest {
         org.springframework.security.core.context.SecurityContextHolder.clearContext();
         assertThrows(org.springframework.security.access.AccessDeniedException.class,
                 () -> context.getBean(AutorizacaoMesa.class).verificarMesa(1));
+    }
+
+    static Stream<Arguments> conflitosAdministrativos() {
+        return Stream.of(
+                Arguments.of("GERENTE", "/mesas/1/status?status=LIVRE"),
+                Arguments.of("CAIXA", "/mesas/1/status?status=RESERVADA"),
+                Arguments.of("GERENTE", "/mesas/1/status?status=MANUTENCAO"),
+                Arguments.of("GERENTE", "/mesas/1/ativacao?ativo=false"));
+    }
+
+    @ParameterizedTest @MethodSource("conflitosAdministrativos")
+    void administracaoComPedidoAtivoRetorna409SemAlteracao(String perfil, String rota) throws Exception {
+        mesa1.setStatus(StatusMesa.OCUPADA);
+        mvc.perform(patch(rota).header("Authorization", "Bearer " + perfil))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.mensagem").isNotEmpty());
+        assertEquals(StatusMesa.OCUPADA, mesa1.getStatus());assertTrue(mesa1.isAtivo());
+        verify(mesas, never()).save(any());verify(pedidos, never()).save(any());verify(produtos, never()).save(any());
+    }
+
+    @Test
+    void segundaContaAguardandoPagamentoRetorna409() throws Exception {
+        mesa1.setStatus(StatusMesa.OCUPADA);pedido1.setStatus(StatusPedido.AGUARDANDO_PAGAMENTO);
+        mvc.perform(post("/pedidos").header("Authorization", "Bearer mesa01").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"numeroMesa\":1,\"itens\":[{\"produtoId\":1,\"quantidade\":1}]}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.mensagem").isNotEmpty());
+        assertEquals(10,produto.getQtdEstoque());assertEquals(StatusPedido.AGUARDANDO_PAGAMENTO,pedido1.getStatus());
+        verify(mesas,never()).save(any());verify(pedidos,never()).save(any());verify(produtos,never()).save(any());
+    }
+
+    @Test
+    void mesaIndisponivelRetorna409SemCriarPedido() throws Exception {
+        mesa1.setAtivo(false);when(pedidos.findAtivosByMesaNumero(1)).thenReturn(List.of());
+        mvc.perform(post("/pedidos").header("Authorization", "Bearer mesa01").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"numeroMesa\":1,\"itens\":[{\"produtoId\":1,\"quantidade\":1}]}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.mensagem").isNotEmpty());
+        assertFalse(mesa1.isAtivo());assertEquals(StatusMesa.LIVRE,mesa1.getStatus());assertEquals(10,produto.getQtdEstoque());
+        verify(mesas,never()).save(any());verify(pedidos,never()).save(any());verify(produtos,never()).save(any());
+    }
+
+    @Test
+    void consultaDeContaAmbiguaRetorna409SemEscolherPedido() throws Exception {
+        when(pedidos.findAtivosByMesaNumero(1)).thenReturn(List.of(pedido1,pedido(33L,mesa1)));
+        mvc.perform(get("/pedidos/mesa/1/aberto").header("Authorization", "Bearer mesa01"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.mensagem").isNotEmpty());
+        verify(pedidos,never()).save(any());
     }
 
     private Mesa mesa(Long id, int numero) {
@@ -204,8 +256,8 @@ class AutorizacaoPedidosTest {
             return new PedidoService(pedidos, mesas, produtos, itens, new PedidoMapper(new ItemPedidoMapper()), autorizacao);
         }
         @Bean MesaService mesaService(MesaRepository mesas, UsuarioRepository usuarios, PasswordEncoder encoder,
-                AutorizacaoMesa autorizacao) {
-            return new MesaService(mesas, usuarios, encoder, new MesaMapper(), autorizacao);
+                AutorizacaoMesa autorizacao, PedidoRepository pedidos) {
+            return new MesaService(mesas, usuarios, encoder, new MesaMapper(), autorizacao, pedidos);
         }
     }
 }
