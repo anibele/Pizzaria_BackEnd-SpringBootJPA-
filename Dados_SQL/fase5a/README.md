@@ -1,5 +1,9 @@
 # Fase 5A — Faturamento recebido e limites dos dados financeiros
 
+## Revisão da migração — Fase 5A.2
+
+O [plano de migração e recuperação](PLANO_MIGRACAO.md) detalha a semântica UTC, preservação do histórico, verificação de reexecução, implantação gradual e ensaio A–J com MySQL 8.0.42. A proposta SQL original foi preservada. O executor específico é `scripts/testar_data_pagamento_mysql.py`; ele cria apenas servidores e dados sintéticos, sem aceitar a conexão do banco de trabalho. A aplicação no original continua reservada à Fase 5A.3 e a implementação Java à Fase 5A.4.
+
 ## Diagnóstico e contrato preservado
 
 D16: o resumo somava e contava todos os pedidos não cancelados, incluindo ABERTO e AGUARDANDO_PAGAMENTO. A distribuição por pagamento também incluía pendências e apresentava forma ausente como DINHEIRO. O caixa já filtrava FINALIZADO, mas usava intervalos inclusivos.
