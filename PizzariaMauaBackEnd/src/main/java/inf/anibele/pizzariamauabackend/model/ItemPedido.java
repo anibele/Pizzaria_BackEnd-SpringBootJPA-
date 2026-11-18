@@ -1,12 +1,14 @@
 package inf.anibele.pizzariamauabackend.model;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Data
+@Getter
+@Setter
 public class ItemPedido {
 
     @Id
@@ -41,4 +43,16 @@ public class ItemPedido {
         this.dataHoraInclusao = LocalDateTime.now();
     }
 
+    // Identidade persistida; nunca percorrer relacionamentos ou campos mutaveis.
+    @Override
+    public final boolean equals(Object other) {
+        if (this == other) return true;
+        return other instanceof ItemPedido entity && getId() != null && getId().equals(entity.getId());
+    }
+
+    @Override
+    public final int hashCode() { return ItemPedido.class.hashCode(); }
+
+    @Override
+    public final String toString() { return "ItemPedido(id=" + getId() + ")"; }
 }

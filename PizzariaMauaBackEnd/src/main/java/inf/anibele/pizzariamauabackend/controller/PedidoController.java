@@ -5,8 +5,13 @@ import inf.anibele.pizzariamauabackend.dto.PedidoRequestDTO;
 import inf.anibele.pizzariamauabackend.dto.PedidoResponseDTO;
 import inf.anibele.pizzariamauabackend.model.StatusItemPedido;
 import inf.anibele.pizzariamauabackend.service.PedidoService;
+import inf.anibele.pizzariamauabackend.exception.RecursoNaoEncontradoException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import inf.anibele.pizzariamauabackend.service.OperacaoAdicao;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,16 +32,22 @@ public class PedidoController {
 
     // 1. Abrir Novo Pedido (Área do Cliente - Primeiro envio do Tablet)
     @PostMapping
-    public ResponseEntity<PedidoResponseDTO> abrirPedido(@RequestBody PedidoRequestDTO requestDTO) {
+    public ResponseEntity<PedidoResponseDTO> abrirPedido(@Valid @RequestBody PedidoRequestDTO requestDTO) {
         PedidoResponseDTO response = pedidoService.abrirPedido(requestDTO);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // 2. Adicionar mais itens ao pedido atual (Área do Cliente - Tablet)
     @PutMapping("/{id}/itens")
-    public ResponseEntity<PedidoResponseDTO> adicionarItens(
-            @PathVariable Long id,
-            @RequestBody List<ItemPedidoRequestDTO> novosItens) {
+    public ResponseEntity<?> adicionarItens(
+            @Positive @PathVariable Long id,
+            @RequestBody List<ItemPedidoRequestDTO> novosItens,
+            @RequestHeader(value = "Idempotency-Key", required = false) List<String> chaves) {
+        var chave = OperacaoAdicao.validarChave(chaves);
+        if (chave != null) {
+            String json = pedidoService.adicionarItensComChave(id, novosItens, chave);
+            return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(json);
+        }
         PedidoResponseDTO response = pedidoService.adicionarItens(id, novosItens);
         return ResponseEntity.ok(response);
     }
@@ -45,7 +56,7 @@ public class PedidoController {
     // Exemplo de chamada: PATCH http://localhost:8080/pedidos/itens/12/status?status=PRONTO
     @PatchMapping("/itens/{itemId}/status")
     public ResponseEntity<Void> atualizarStatusItem(
-            @PathVariable Long itemId,
+            @Positive @PathVariable Long itemId,
             @RequestParam StatusItemPedido status) {
         pedidoService.atualizarStatusItem(itemId, status);
         return ResponseEntity.noContent().build();
@@ -54,7 +65,7 @@ public class PedidoController {
     // 3. Solicitar Fechamento do Pedido / Enviar forma de Pagamento (Área do Cliente - Tablet)
     @PatchMapping("/{id}/finalizar")
     public ResponseEntity<PedidoResponseDTO> finalizarPedido(
-            @PathVariable Long id,
+            @Positive @PathVariable Long id,
             @RequestParam String formaPagamento) {
         PedidoResponseDTO response = pedidoService.finalizarPedido(id, formaPagamento);
         return ResponseEntity.ok(response);
@@ -63,7 +74,7 @@ public class PedidoController {
     // NOVO 3.5. Confirmar Recebimento e Efetivar Fechamento da Mesa (Área do Caixa/Admin)
     // Exemplo de chamada: PATCH http://localhost:8080/pedidos/12/confirmar
     @PatchMapping("/{id}/confirmar")
-    public ResponseEntity<PedidoResponseDTO> confirmarPagamento(@PathVariable Long id) {
+    public ResponseEntity<PedidoResponseDTO> confirmarPagamento(@Positive @PathVariable Long id) {
         PedidoResponseDTO response = pedidoService.confirmarPagamentoEFecharMesa(id);
         return ResponseEntity.ok(response);
     }
@@ -76,11 +87,12 @@ public class PedidoController {
 
     // 5. Buscar o pedido em aberto de uma mesa (Área do Cliente - Sincronização do Tablet)
     @GetMapping("/mesa/{numero}/aberto")
-    public ResponseEntity<?> buscarPedidoAbertoDaMesa(@PathVariable int numero) {
+    public ResponseEntity<?> buscarPedidoAbertoDaMesa(@Positive @PathVariable int numero) {
         try {
             PedidoResponseDTO pedido = pedidoService.buscarPedidoAbertoDaMesa(numero);
             return ResponseEntity.ok(pedido);
-        } catch (RuntimeException e) {
+        } catch (RecursoNaoEncontradoException exception) {
+            // Preserva o contrato do tablet: ausência de conta ativa retorna 404 sem corpo.
             return ResponseEntity.notFound().build();
         }
     }

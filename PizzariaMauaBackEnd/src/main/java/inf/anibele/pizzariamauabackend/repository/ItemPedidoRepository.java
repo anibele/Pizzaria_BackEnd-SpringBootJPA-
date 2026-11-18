@@ -6,32 +6,40 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ItemPedidoRepository extends JpaRepository<ItemPedido, Long> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from ItemPedido m where m.id = :valor")
+    Optional<ItemPedido> findByIdForUpdate(@Param("valor") Long valor);
+
     // Busca todos os itens que pertencem a um determinado pedido
     List<ItemPedido> findByPedidoId(Long pedidoId);
 
-    // Traz o Top 5 produtos mais vendidos do mês atual
+    // Ranking operacional de PIZZAS: quantidades em pedidos nao cancelados.
     @Query("SELECT new inf.anibele.pizzariamauabackend.dto.dashboarddto.ProdutoCampeaoDTO(pr.nome, SUM(ip.quantidade)) " +
             "FROM ItemPedido ip JOIN ip.produto pr JOIN ip.pedido p " +
-            "WHERE p.dataHora BETWEEN :inicioMes AND :fimMes AND p.status != 'CANCELADO' " +
-            "GROUP BY pr.id ORDER BY SUM(ip.quantidade) DESC")
+            "WHERE p.dataHora >= :inicioMes AND p.dataHora < :fimMes AND p.status != 'CANCELADO' " +
+            "AND pr.categoria = inf.anibele.pizzariamauabackend.model.Categoria.PIZZAS " +
+            "GROUP BY pr.id, pr.nome ORDER BY SUM(ip.quantidade) DESC, pr.id ASC")
     List<ProdutoCampeaoDTO> buscarTopProdutos(@Param("inicioMes") LocalDateTime inicioMes, @Param("fimMes") LocalDateTime fimMes);
 
     // Conta quantos pedidos no dia possuem pelo menos 1 item cuja categoria seja 'BEBIDA'
     @Query("SELECT COUNT(DISTINCT p.id) FROM ItemPedido ip JOIN ip.pedido p JOIN ip.produto pr " +
-            "WHERE p.dataHora BETWEEN :inicioDia AND :fimDia AND p.status != 'CANCELADO' " +
+            "WHERE p.dataHora >= :inicioDia AND p.dataHora < :fimDia AND p.status != 'CANCELADO' " +
             "AND pr.categoria = 'BEBIDAS'")
     Long contarPedidosComBebida(@Param("inicioDia") LocalDateTime inicioDia, @Param("fimDia") LocalDateTime fimDia);
 
     // 1. CALCULA O TEMPO MÉDIO REAL DE COZINHA DO DIA (em minutos)
     @Query(value = "SELECT COALESCE(AVG(TIMESTAMPDIFF(MINUTE, data_hora_inclusao, data_hora_conclusao)), 0) " +
-            "FROM item_pedido WHERE data_hora_inclusao BETWEEN :inicioDia AND :fimDia " +
+            "FROM item_pedido WHERE data_hora_inclusao >= :inicioDia AND data_hora_inclusao < :fimDia " +
             "AND data_hora_conclusao IS NOT NULL", nativeQuery = true)
     Long calcularTempoMedioCozinhaDoDia(@Param("inicioDia") LocalDateTime inicioDia, @Param("fimDia") LocalDateTime fimDia);
 

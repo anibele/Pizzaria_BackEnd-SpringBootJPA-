@@ -159,28 +159,17 @@ Para uso em produção, recomenda-se:
 - restringir origens de CORS apenas ao front-end oficial;
 - revisar credenciais padrão geradas pelo inicializador de dados.
 
+Consulte as instrucoes operacionais atualizadas da [Fase 3B](Dados_SQL/fase3b/README.md) para configurar a chave JWT obrigatoria, perfis e testes isolados.
+
 ## Banco de dados
 
 O projeto utiliza MySQL. A configuração principal está em `PizzariaMauaBackEnd/src/main/resources/application.properties`.
 
-Configuração atual de desenvolvimento:
+O comportamento padrao do Hibernate e `validate`: o schema deve estar previamente preparado, sem alteracoes automaticas. A migracao da Fase 3A deve estar aplicada antes do uso da associacao Usuario → Mesa. O perfil `prod` utiliza conexao fornecida por variaveis de ambiente, conforme a documentacao operacional acima.
 
-- banco: `pizzamaua`
-- usuário: `root`
-- senha: `mysql`
-- estratégia JPA: `update`
+### Inicializacao demonstrativa
 
-### Inicialização automática
-
-O componente `DataInitializer` cria ou garante a presença de dados básicos ao subir a aplicação:
-
-- usuários padrão:
-  - `gerente1`
-  - `cozinha1`
-  - `caixa1`
-  - `mesa01` até `mesa10`
-- mesas de 1 a 10;
-- catálogo inicial com pizzas, sobremesas, acompanhamentos e bebidas.
+O `DataInitializer` executa somente no perfil explicito `demo`, sem `prod`, e apenas se todas as tabelas principais estiverem vazias. Cria mesas 1–10, contas demonstrativas com vinculos e produtos em uma unica transacao. Bases existentes ou parciais nao sao completadas; registros removidos nao sao recriados. As onze associacoes ja migradas no banco de trabalho sao preservadas. Nenhum perfil demonstrativo e ativado por padrao.
 
 ### Histórico de vendas
 
@@ -216,7 +205,7 @@ Se desejar carregar o histórico de pedidos, importe o arquivo `Dados_SQL/histor
 
 ### 3. Ajustar as credenciais, se necessário
 
-Edite `src/main/resources/application.properties` se seu MySQL usar usuário, senha ou host diferentes.
+Forneca as variaveis de conexao do perfil `prod` ou os overrides `SPRING_DATASOURCE_*` locais. Configure tambem `API_SECURITY_TOKEN_SECRET`, conforme a [Fase 3B](Dados_SQL/fase3b/README.md). Nao versione segredos.
 
 ### 4. Iniciar a aplicação
 
@@ -236,7 +225,7 @@ Por padrão, a aplicação sobe na porta `8080`, salvo configuração diferente 
 
 ## Credenciais padrão de desenvolvimento
 
-Os usuários abaixo são criados automaticamente na inicialização, caso ainda não existam:
+Os usuarios abaixo sao criados somente na primeira carga de uma base vazia, com perfil `demo` explicitamente ativo:
 
 | Usuário | Senha | Perfil |
 | --- | --- | --- |

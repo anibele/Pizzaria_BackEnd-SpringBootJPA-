@@ -9,48 +9,98 @@ import inf.anibele.pizzariamauabackend.repository.MesaRepository;
 import inf.anibele.pizzariamauabackend.repository.PedidoRepository;
 import inf.anibele.pizzariamauabackend.repository.ProdutoRepository;
 import inf.anibele.pizzariamauabackend.repository.ItemPedidoRepository;
-import jakarta.transaction.Transactional;
+import inf.anibele.pizzariamauabackend.security.AutorizacaoMesa;
+import org.springframework.transaction.annotation.Transactional;
+import jakarta.persistence.EntityManager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import inf.anibele.pizzariamauabackend.exception.RecursoNaoEncontradoException;
+import inf.anibele.pizzariamauabackend.exception.ConflitoException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.temporal.ChronoUnit;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
+import java.time.ZoneOffset;
+import java.security.MessageDigest;
+import java.util.UUID;
+import tools.jackson.databind.json.JsonMapper;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.AccessDeniedException;
+import inf.anibele.pizzariamauabackend.repository.IdempotenciaAdicaoRepository;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
 public class PedidoService {
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private IdempotenciaAdicaoRepository idempotenciaRepository;
+
+    @Autowired
+    private JsonMapper jsonMapper;
 
     private final PedidoRepository pedidoRepository;
     private final MesaRepository mesaRepository;
     private final ProdutoRepository produtoRepository;
     private final ItemPedidoRepository itemPedidoRepository;
     private final PedidoMapper pedidoMapper;
+    private final AutorizacaoMesa autorizacaoMesa;
+    private final Clock relogio;
 
+    @Autowired
     public PedidoService(PedidoRepository pedidoRepository,
                          MesaRepository mesaRepository,
                          ProdutoRepository produtoRepository,
                          ItemPedidoRepository itemPedidoRepository,
-                         PedidoMapper pedidoMapper) {
+                         PedidoMapper pedidoMapper, AutorizacaoMesa autorizacaoMesa) {
+        this(pedidoRepository, mesaRepository, produtoRepository, itemPedidoRepository, pedidoMapper, autorizacaoMesa, Clock.systemUTC());
+    }
+
+    PedidoService(PedidoRepository pedidoRepository, MesaRepository mesaRepository,
+                  ProdutoRepository produtoRepository, ItemPedidoRepository itemPedidoRepository,
+                  PedidoMapper pedidoMapper, AutorizacaoMesa autorizacaoMesa, Clock relogio) {
+        this.relogio = relogio;
         this.pedidoRepository = pedidoRepository;
         this.mesaRepository = mesaRepository;
         this.produtoRepository = produtoRepository;
         this.itemPedidoRepository = itemPedidoRepository;
         this.pedidoMapper = pedidoMapper;
+        this.autorizacaoMesa = autorizacaoMesa;
     }
 
     // 1. Abrir um novo pedido (Cliente sentou e pediu os primeiros itens)
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PedidoResponseDTO abrirPedido(PedidoRequestDTO dto) {
-        Mesa mesa = mesaRepository.findByNumero(dto.numeroMesa())
-                .orElseThrow(() -> new RuntimeException("Mesa não encontrada: " + dto.numeroMesa()));
+        autorizacaoMesa.verificarMesa(dto.numeroMesa());
+        Map<Long, Produto> produtos = validarItens(dto.itens());
+        Mesa mesa = mesaRepository.findByNumeroForUpdate(dto.numeroMesa())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa não encontrada: " + dto.numeroMesa()));
 
-        List<Pedido> pedidosAbertos = pedidoRepository.findByMesaNumeroAndStatus(mesa.getNumero(), StatusPedido.ABERTO);
-        if (!pedidosAbertos.isEmpty()) {
-            throw new RuntimeException("A mesa " + mesa.getNumero() + " já possui um pedido em aberto. Adicione itens ao pedido existente.");
+        entityManager.detach(mesa);
+        mesa = mesaRepository.findByNumeroForUpdate(mesa.getNumero())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa nao encontrada."));
+        List<Pedido> pedidosAtivos = pedidoRepository.findAtivosByMesaNumero(mesa.getNumero());
+        if (!pedidosAtivos.isEmpty()) {
+            throw new ConflitoException("A mesa já possui um pedido ativo.");
         }
+        if (!mesa.isAtivo() || mesa.getStatus() != StatusMesa.LIVRE) {
+            throw new ConflitoException("A abertura exige uma mesa ativa e LIVRE. Revise a disponibilidade da mesa.");
+        }
+
+        bloquearProdutos(produtos);
 
         Pedido pedido = new Pedido();
         pedido.setMesa(mesa);
@@ -61,11 +111,10 @@ public class PedidoService {
         BigDecimal faturamentoTotal = BigDecimal.ZERO;
 
         for (ItemPedidoRequestDTO itemDto : dto.itens()) {
-            Produto produto = produtoRepository.findByIdAndAtivoTrue(itemDto.produtoId())
-                    .orElseThrow(() -> new RuntimeException("Produto inativo ou não encontrado. ID: " + itemDto.produtoId()));
+            Produto produto = produtos.get(itemDto.produtoId());
 
             if (produto.getQtdEstoque() < itemDto.quantidade()) {
-                throw new RuntimeException("Estoque insuficiente para o produto: " + produto.getNome());
+                throw new ConflitoException("Estoque insuficiente para o produto: " + produto.getNome());
             }
 
             produto.setQtdEstoque(produto.getQtdEstoque() - itemDto.quantidade());
@@ -95,23 +144,77 @@ public class PedidoService {
     }
 
     // 2. Adicionar mais itens a um pedido já aberto
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PedidoResponseDTO adicionarItens(Long pedidoId, List<ItemPedidoRequestDTO> novosItensDto) {
+        autorizacaoMesa.verificarVinculo();
+        Map<Long, Produto> produtos = validarItens(novosItensDto);
         Pedido pedido = pedidoRepository.findById(pedidoId)
-                .orElseThrow(() -> new RuntimeException("Pedido não encontrado: " + pedidoId));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
 
+        autorizacaoMesa.verificarMesa(pedido.getMesa());
+        pedido = bloquearPedido(pedido);
+
+        return incluirItens(pedido, novosItensDto, produtos);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public String adicionarItensComChave(Long pedidoId, List<ItemPedidoRequestDTO> itens, UUID chave) {
+        if (chave == null || pedidoId == null || pedidoId <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe pedido e chave validos.");
+        }
+        autorizacaoMesa.verificarVinculo();
+        validarEstruturaItens(itens);
+        var autenticacao = SecurityContextHolder.getContext().getAuthentication();
+        if (autenticacao == null || !autenticacao.isAuthenticated()
+                || !(autenticacao.getPrincipal() instanceof Usuario usuario) || usuario.getId() == null) {
+            throw new AccessDeniedException("Usuario autenticado necessario.");
+        }
+        Pedido pedido = pedidoRepository.findById(pedidoId)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido nao encontrado."));
+        autorizacaoMesa.verificarMesa(pedido.getMesa());
+        pedido = bloquearPedido(pedido);
+        autorizacaoMesa.verificarMesa(pedido.getMesa());
+        byte[] hash = OperacaoAdicao.hash(pedidoId, itens);
+        var anterior = idempotenciaRepository.findByUsuarioIdAndPedidoIdAndChave(usuario.getId(), pedidoId, chave);
+        if (anterior.isPresent()) {
+            var operacao = anterior.get();
+            if (!MessageDigest.isEqual(hash, operacao.getPayloadHash())) {
+                throw new ConflitoException("Idempotency-Key ja utilizada com conteudo diferente.");
+            }
+            return operacao.getRespostaJson();
+        }
         if (pedido.getStatus() != StatusPedido.ABERTO) {
-            throw new RuntimeException("Apenas pedidos ABERTOS podem receber novos itens.");
+            throw new ConflitoException("Apenas pedidos ABERTOS podem receber novos itens.");
+        }
+        var resposta = incluirItens(pedido, itens, buscarProdutos(itens));
+        String json = jsonMapper.writeValueAsString(resposta);
+        var registro = new IdempotenciaAdicao();
+        registro.setUsuario(entityManager.getReference(Usuario.class, usuario.getId()));
+        registro.setPedido(pedido);
+        registro.setChave(chave);
+        registro.setPayloadHash(hash);
+        registro.setRespostaJson(json);
+        registro.setStatusHttp((short) 200);
+        registro.setCriadoEm(LocalDateTime.now(ZoneOffset.UTC));
+        // Sem expiracao/limpeza automatica nesta etapa.
+        idempotenciaRepository.saveAndFlush(registro);
+        return json;
+    }
+
+    private PedidoResponseDTO incluirItens(Pedido pedido, List<ItemPedidoRequestDTO> novosItensDto,
+                                            Map<Long, Produto> produtos) {
+        if (pedido.getStatus() != StatusPedido.ABERTO) {
+            throw new ConflitoException("Apenas pedidos ABERTOS podem receber novos itens.");
         }
 
+        bloquearProdutos(produtos);
         BigDecimal faturamentoAdicional = BigDecimal.ZERO;
 
         for (ItemPedidoRequestDTO itemDto : novosItensDto) {
-            Produto produto = produtoRepository.findByIdAndAtivoTrue(itemDto.produtoId())
-                    .orElseThrow(() -> new RuntimeException("Produto inativo ou não encontrado. ID: " + itemDto.produtoId()));
+            Produto produto = produtos.get(itemDto.produtoId());
 
             if (produto.getQtdEstoque() < itemDto.quantidade()) {
-                throw new RuntimeException("Estoque insuficiente para o produto: " + produto.getNome());
+                throw new ConflitoException("Estoque insuficiente para o produto: " + produto.getNome());
             }
 
             produto.setQtdEstoque(produto.getQtdEstoque() - itemDto.quantidade());
@@ -136,49 +239,128 @@ public class PedidoService {
         return pedidoMapper.toResponseDTO(pedido);
     }
 
+    private Map<Long, Produto> validarItens(List<ItemPedidoRequestDTO> itens) {
+        validarEstruturaItens(itens);
+        return buscarProdutos(itens);
+    }
+
+    private void validarEstruturaItens(List<ItemPedidoRequestDTO> itens) {
+        if (itens == null || itens.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe ao menos um item no pedido.");
+        }
+
+        for (ItemPedidoRequestDTO item : itens) {
+            if (item == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A lista de itens não pode conter item nulo.");
+            }
+            if (item.produtoId() == null || item.produtoId() <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe um identificador de produto válido.");
+            }
+            if (item.quantidade() == null || item.quantidade() <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A quantidade deve ser um número inteiro maior que zero.");
+            }
+        }
+    }
+
+    private Map<Long, Produto> buscarProdutos(List<ItemPedidoRequestDTO> itens) {
+        Map<Long, Produto> produtos = new HashMap<>();
+        for (ItemPedidoRequestDTO item : itens) {
+            if (!produtos.containsKey(item.produtoId())) {
+                Produto produto = produtoRepository.findByIdAndAtivoTrue(item.produtoId())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Produto inativo ou não encontrado."));
+                produtos.put(item.produtoId(), produto);
+            }
+        }
+        return produtos;
+    }
+
     // 2.5. Atualizar Status de um Item Específico na Cozinha
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void atualizarStatusItem(Long itemId, StatusItemPedido novoStatus) {
+        if (novoStatus == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe um status de item valido.");
+        }
         ItemPedido item = itemPedidoRepository.findById(itemId)
-                .orElseThrow(() -> new RuntimeException("Item do pedido não encontrado. ID: " + itemId));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Item do pedido nao encontrado. ID: " + itemId));
+        if (item.getPedido() == null) {
+            throw new ConflitoException("Item sem pedido associado. Revise a inconsistencia.");
+        }
+        Pedido pedido = bloquearPedido(item.getPedido());
+        entityManager.detach(item);
+        item = itemPedidoRepository.findByIdForUpdate(itemId)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Item nao encontrado."));
+        if (item.getPedido() == null || !pedido.getId().equals(item.getPedido().getId())) {
+            throw new ConflitoException("O vinculo do item com o pedido esta inconsistente.");
+        }
+        if (pedido.getStatus() != StatusPedido.ABERTO && pedido.getStatus() != StatusPedido.AGUARDANDO_PAGAMENTO) {
+            throw new ConflitoException("Pedidos encerrados nao permitem alterar o preparo dos itens.");
+        }
+        StatusItemPedido atual = item.getStatus();
+        if (atual == novoStatus) return;
 
+        // O frontend atual conclui itens diretamente de PENDENTE para PRONTO.
+        boolean permitida = (atual == StatusItemPedido.PENDENTE
+                && (novoStatus == StatusItemPedido.EM_PREPARO || novoStatus == StatusItemPedido.PRONTO))
+                || (atual == StatusItemPedido.EM_PREPARO && novoStatus == StatusItemPedido.PRONTO);
+        if (!permitida) {
+            throw new ConflitoException("Transicao de status do item nao permitida.");
+        }
+        if (item.getDataHoraConclusao() != null) {
+            throw new ConflitoException("Item nao concluido possui data de conclusao. Revise o historico.");
+        }
         item.setStatus(novoStatus);
-
         if (novoStatus == StatusItemPedido.PRONTO) {
             item.setDataHoraConclusao(LocalDateTime.now());
         }
-
         itemPedidoRepository.save(item);
     }
 
     // 3. Solicitação de Fechamento pelo Cliente (Área do Cliente - Encerramento no Tablet)
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PedidoResponseDTO finalizarPedido(Long pedidoId, String formaPagamento) {
+        autorizacaoMesa.verificarVinculo();
         Pedido pedido = pedidoRepository.findById(pedidoId)
-                .orElseThrow(() -> new RuntimeException("Pedido não encontrado: " + pedidoId));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
+
+        autorizacaoMesa.verificarMesa(pedido.getMesa());
+        pedido = bloquearPedido(pedido);
 
         if (pedido.getStatus() != StatusPedido.ABERTO) {
-            throw new RuntimeException("Apenas pedidos ABERTOS podem solicitar fechamento. Status atual: " + pedido.getStatus());
+            throw new ConflitoException("Apenas pedidos ABERTOS podem solicitar fechamento. Status atual: " + pedido.getStatus());
         }
 
+        validarPedidoAtivoUnico(pedido);
+
+        if (formaPagamento == null || !Set.of("PIX", "CARTAO", "DINHEIRO")
+                .contains(formaPagamento.strip().toUpperCase(Locale.ROOT))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe uma forma de pagamento valida: PIX, CARTAO ou DINHEIRO.");
+        }
         // Muda apenas o pedido para AGUARDANDO_PAGAMENTO. A mesa continua OCUPADA!
         pedido.setStatus(StatusPedido.AGUARDANDO_PAGAMENTO);
-        pedido.setFormaPagamento(formaPagamento);
+        pedido.setFormaPagamento(formaPagamento.strip().toUpperCase(Locale.ROOT));
 
         pedido = pedidoRepository.save(pedido);
         return pedidoMapper.toResponseDTO(pedido);
     }
 
     // NOVO 3.5. Confirmar Recebimento no Caixa (Área do Gerente/Caixa - Encerra de Verdade)
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PedidoResponseDTO confirmarPagamentoEFecharMesa(Long pedidoId) {
         Pedido pedido = pedidoRepository.findById(pedidoId)
-                .orElseThrow(() -> new RuntimeException("Pedido não encontrado: " + pedidoId));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido não encontrado: " + pedidoId));
+
+        pedido = bloquearPedido(pedido);
 
         if (pedido.getStatus() != StatusPedido.AGUARDANDO_PAGAMENTO) {
-            throw new RuntimeException("Este pedido não está aguardando pagamento. Status atual: " + pedido.getStatus());
+            throw new ConflitoException("Este pedido não está aguardando pagamento. Status atual: " + pedido.getStatus());
         }
 
+        validarPedidoAtivoUnico(pedido);
+
+        if (pedido.getDataPagamentoUtc() != null) {
+            throw new ConflitoException("Pedido pendente ja possui data de pagamento. Revise a inconsistencia.");
+        }
+        pedido.setDataPagamentoUtc(LocalDateTime.ofInstant(relogio.instant(), ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS));
         pedido.setStatus(StatusPedido.FINALIZADO);
 
         Mesa mesa = pedido.getMesa();
@@ -198,32 +380,77 @@ public class PedidoService {
 
     // 5. Buscar pedido ativo de uma mesa específica
     public PedidoResponseDTO buscarPedidoAbertoDaMesa(Integer numeroMesa) {
-        List<Pedido> pedidos = pedidoRepository.findByMesaNumeroAndStatusIn(
-                numeroMesa,
-                List.of(StatusPedido.ABERTO, StatusPedido.AGUARDANDO_PAGAMENTO)
-        );
+        autorizacaoMesa.verificarMesa(numeroMesa);
+        List<Pedido> pedidos = pedidoRepository.findAtivosByMesaNumero(numeroMesa);
         if (pedidos.isEmpty()) {
-            throw new RuntimeException("Nenhum pedido em aberto para a mesa " + numeroMesa);
+            throw new RecursoNaoEncontradoException("Nenhum pedido em aberto para a mesa " + numeroMesa);
         }
+        if (pedidos.size() > 1) {
+            throw new ConflitoException("A mesa possui múltiplos pedidos ativos. Revise a inconsistência antes de continuar.");
+        }
+        validarMesaOcupada(pedidos.get(0).getMesa());
         return pedidoMapper.toResponseDTO(pedidos.get(0));
     }
 
-    // 6. Listar Pedidos Concluídos/Finalizados de uma data específica (Área do Arquivo do Caixa)
-    public List<PedidoResponseDTO> listarPedidosFinalizadosPorData(LocalDate data) {
-        LocalDateTime inicioDia = data.atStartOfDay();
-        LocalDateTime fimDia = data.atTime(LocalTime.MAX);
+    private void validarPedidoAtivoUnico(Pedido pedido) {
+        List<Pedido> ativos = pedidoRepository.findAtivosByMesaNumero(pedido.getMesa().getNumero());
+        if (ativos.size() != 1 || !pedido.getId().equals(ativos.get(0).getId())) {
+            throw new ConflitoException("A conta ativa da mesa está inconsistente. Revise os pedidos antes de continuar.");
+        }
+        validarMesaOcupada(pedido.getMesa());
+    }
 
-        return pedidoRepository.findByStatusAndDataHoraBetween(StatusPedido.FINALIZADO, inicioDia, fimDia).stream()
+    private Pedido bloquearPedido(Pedido pedido) {
+        Mesa mesa = mesaRepository.findByNumeroForUpdate(pedido.getMesa().getNumero())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa nao encontrada."));
+        entityManager.detach(mesa);
+        mesa = mesaRepository.findByNumeroForUpdate(mesa.getNumero())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Mesa nao encontrada."));
+        entityManager.detach(pedido);
+        Pedido atualizado = pedidoRepository.findByIdForUpdate(pedido.getId())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Pedido nao encontrado."));
+        // O filtro/leituras anteriores podem ter carregado entidades antes de esperar pelo lock.
+        return atualizado;
+    }
+
+    private void bloquearProdutos(Map<Long, Produto> produtos) {
+        for (Long id : produtos.keySet().stream().sorted().toList()) {
+            entityManager.detach(produtos.get(id));
+            Produto produto = produtoRepository.findByIdForUpdate(id)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Produto inativo ou nao encontrado."));
+            if (!produto.isAtivo()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Produto inativo ou nao encontrado.");
+            }
+            produtos.put(id, produto);
+        }
+    }
+
+    private void validarMesaOcupada(Mesa mesa) {
+        if (!mesa.isAtivo() || mesa.getStatus() != StatusMesa.OCUPADA) {
+            throw new ConflitoException("A mesa de um pedido ativo deve estar ativa e OCUPADA. Revise a inconsistência.");
+        }
+    }
+
+    // 6. Listar Pedidos Concluídos/Finalizados de uma data específica (Área do Arquivo do Caixa)
+    @Transactional(readOnly = true)
+    public List<PedidoResponseDTO> listarPedidosFinalizadosPorData(LocalDate data) {
+        var periodo = PeriodoRecebimento.doDia(data);
+        LocalDateTime inicioDia = periodo.inicioUtc();
+        LocalDateTime fimDia = periodo.fimUtc();
+
+        return pedidoRepository.findFinalizadosNoPeriodo(inicioDia, fimDia).stream()
                 .map(pedidoMapper::toResponseDTO)
                 .collect(Collectors.toList());
     }
 
     // 7. Obter a soma do faturamento total de pedidos concluídos em uma data específica
+    @Transactional(readOnly = true)
     public BigDecimal obterFaturamentoPorData(LocalDate data) {
-        LocalDateTime inicioDia = data.atStartOfDay();
-        LocalDateTime fimDia = data.atTime(LocalTime.MAX);
+        var periodo = PeriodoRecebimento.doDia(data);
+        LocalDateTime inicioDia = periodo.inicioUtc();
+        LocalDateTime fimDia = periodo.fimUtc();
 
-        return pedidoRepository.sumFaturamentoFinalizadoByDataHoraBetween(inicioDia, fimDia);
+        return pedidoRepository.somarFaturamentoRecebidoNoPeriodo(inicioDia, fimDia);
     }
 
 }

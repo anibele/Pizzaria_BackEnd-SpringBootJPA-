@@ -8,12 +8,21 @@ import inf.anibele.pizzariamauabackend.model.Produto;
 import inf.anibele.pizzariamauabackend.repository.ProdutoRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import inf.anibele.pizzariamauabackend.exception.RecursoNaoEncontradoException;
+import inf.anibele.pizzariamauabackend.exception.ConflitoException;
 
 import java.util.List;
+import jakarta.persistence.EntityManager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.stream.Collectors;
 
 @Service
 public class ProdutoService {
+
+    @Autowired
+    private EntityManager entityManager;
 
     private final ProdutoRepository produtoRepository;
     private final ProdutoMapper produtoMapper;
@@ -47,14 +56,18 @@ public class ProdutoService {
     // 4. Buscar um produto específico por ID
     public ProdutoResponseDTO buscarPorId(Long id) {
         Produto produto = produtoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Produto não encontrado com o ID: " + id));
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Produto não encontrado com o ID: " + id));
         return produtoMapper.toResponseDTO(produto);
     }
 
     // 5. Editar um produto existente
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ProdutoResponseDTO editar(Long id, ProdutoRequestDTO dto) {
-        Produto produto = produtoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Produto não encontrado com o ID: " + id));
+        Produto produto = produtoRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Produto não encontrado com o ID: " + id));
+        entityManager.detach(produto);
+        produto = produtoRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Recurso nao encontrado."));
 
         // Atualizando os dados da entidade com os dados que vieram do DTO
         produto.setNome(dto.nome());
@@ -81,9 +94,13 @@ public class ProdutoService {
     }
 
     // 6. Ativar ou Desativar um produto (controle de exibição)
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public ProdutoResponseDTO alternarStatus(Long id, boolean ativo) {
-        Produto produto = produtoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Produto não encontrado com o ID: " + id));
+        Produto produto = produtoRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Produto não encontrado com o ID: " + id));
+        entityManager.detach(produto);
+        produto = produtoRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Recurso nao encontrado."));
 
         produto.setAtivo(ativo);
         produto = produtoRepository.save(produto);
@@ -91,14 +108,19 @@ public class ProdutoService {
     }
 
     // 7. Excluir produto (com verificação de integridade referencial)
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void excluir(Long id) {
-        Produto produto = produtoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Produto não encontrado com o ID: " + id));
+        Produto produto = produtoRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Produto não encontrado com o ID: " + id));
+        entityManager.detach(produto);
+        produto = produtoRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("Recurso nao encontrado."));
 
         try {
             produtoRepository.delete(produto);
+            produtoRepository.flush();
         } catch (DataIntegrityViolationException e) {
-            throw new RuntimeException("Não é possível excluir definitivamente o produto '"
+            throw new ConflitoException("Não é possível excluir definitivamente o produto '"
                     + produto.getNome()
                     + "' pois ele já está vinculado a pedidos anteriores no sistema. Ação recomendada: desativar o produto.");
         }
