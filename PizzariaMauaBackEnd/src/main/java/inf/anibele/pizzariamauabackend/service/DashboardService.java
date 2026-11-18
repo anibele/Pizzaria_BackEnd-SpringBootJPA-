@@ -86,11 +86,13 @@ public class DashboardService {
         return pedidoRepository.agruparPorFormaPagamento(periodo.inicioUtc(), periodo.fimUtc());
     }
 
+    @Transactional(readOnly = true)
     public DashboardRankingsDTO obterRankings() {
-        LocalDateTime inicioMes = LocalDate.now().withDayOfMonth(1).atStartOfDay();
-        LocalDateTime fimMes = LocalDate.now().atTime(LocalTime.MAX);
+        LocalDate dia = LocalDate.now(relogio.withZone(FUSO_FINANCEIRO));
+        LocalDateTime inicioMes = dia.withDayOfMonth(1).atStartOfDay();
+        LocalDateTime fimMes = dia.atTime(LocalTime.MAX);
 
-        List<ProdutoCampeaoDTO> topPizzas = itemPedidoRepository.buscarTopProdutos(inicioMes, fimMes);
+        List<ProdutoCampeaoDTO> topPizzas = itemPedidoRepository.buscarTopProdutos(inicioMes, dia.plusDays(1).atStartOfDay());
 
         if (topPizzas.size() > 5) topPizzas = topPizzas.subList(0, 5);
 

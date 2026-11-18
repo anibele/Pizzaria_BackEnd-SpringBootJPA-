@@ -10,9 +10,19 @@ A coluna aprovada foi aplicada e auditada antes desta implementação, sem backf
 
 Consultas operacionais de demanda, bebidas e preparo continuam por abertura/inclusão. URLs, permissões, DTOs e formatos de sucesso foram preservados; o campo de abertura `dataHora` na resposta continua sendo abertura. O frontend não foi alterado. A mudança dos relatórios diários é semântica e intencional: recebimentos do dia em vez de pedidos abertos naquele dia.
 
-Validação direcionada desta implementação: 75 testes aprovados (37 financeiros MySQL, 9 de resumo/contrato/timezone e 29 do PedidoService), zero falhas/erros/ignorados. Foram acrescentados nove casos MySQL e adaptadas as fixtures anteriores para representar recebimentos conhecidos; o caso de histórico NULL continua explícito. A regressão consolidada será executada após a correção do ranking.
+Validação direcionada desta implementação: 75 testes aprovados (37 financeiros MySQL, 9 de resumo/contrato/timezone e 29 do PedidoService), zero falhas/erros/ignorados. Foram acrescentados nove casos MySQL e adaptadas as fixtures anteriores para representar recebimentos conhecidos; o caso de histórico NULL continua explícito. A regressão consolidada foi concluída após a correção do ranking, conforme resultado abaixo.
 
 Os documentos abaixo e o plano preservam o registro das etapas anteriores de preparação; suas indicações de pendência descrevem aquele estado, superado pela migração autorizada e implementação acima. Não reaplicar o SQL de proposta no banco original.
+
+## Ranking de pizzas — correção D17
+
+`/api/dashboard/rankings` mantém o DTO `topPizzas` (nome e quantidadeVendida) e o limite de cinco. A consulta agora aceita exclusivamente Categoria.PIZZAS, incluindo pizzas doces cadastradas nessa categoria. Nomes não determinam categoria; bebidas, sobremesas e acompanhamentos ficam excluídos. O agrupamento continua por ID de produto; produtos distintos de mesmo nome não são fundidos e ingredientes não participam do join.
+
+Preservada a definição operacional anterior: soma de quantidades dos itens em pedidos não CANCELADOS (ABERTO, AGUARDANDO_PAGAMENTO e FINALIZADO), por abertura do pedido, do início do mês ao fim do dia corrente em America/Sao_Paulo. Não é um ranking de receita recebida. Intervalo semiaberto, quantidade decrescente e ID crescente no empate. Produtos sem vendas não aparecem. Não há mudança de DTO, endpoint ou frontend.
+
+Validação final: **626 testes Java aprovados, zero falhas, erros ou ignorados**, preservando os 604 anteriores. Acrescentados nove casos MySQL de D23 e treze de ranking (incluindo verificações HTTP do contrato). Total MySQL 8.0.42: 151 — 71 de concorrência, 30 de idempotência HTTP, 37 financeiros e 13 de ranking. Compilação e git diff --check aprovados. Os executores encerraram as instâncias descartáveis. Não houve testes de escrita no original nem mudanças de autenticação, permissões, estoque ou idempotência.
+
+A segunda observação da auditoria D17, sobre `vezesAtrasado`, não é silenciosamente redefinida por esta correção do ranking: a consulta legada conta itens concluídos, e `tempoMedioPreparo` é uma String livre, sem contrato numérico confiável. Uma regra de atraso ou renomeação coordenada ainda precisa de decisão; o ranking de pizzas está corrigido, mas essa outra métrica da auditoria permanece pendente.
 
 ## Revisão da migração — Fase 5A.2
 
