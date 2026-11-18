@@ -21,6 +21,8 @@ import inf.anibele.pizzariamauabackend.exception.ConflitoException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.temporal.ChronoUnit;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -56,12 +58,21 @@ public class PedidoService {
     private final ItemPedidoRepository itemPedidoRepository;
     private final PedidoMapper pedidoMapper;
     private final AutorizacaoMesa autorizacaoMesa;
+    private final Clock relogio;
 
+    @Autowired
     public PedidoService(PedidoRepository pedidoRepository,
                          MesaRepository mesaRepository,
                          ProdutoRepository produtoRepository,
                          ItemPedidoRepository itemPedidoRepository,
                          PedidoMapper pedidoMapper, AutorizacaoMesa autorizacaoMesa) {
+        this(pedidoRepository, mesaRepository, produtoRepository, itemPedidoRepository, pedidoMapper, autorizacaoMesa, Clock.systemUTC());
+    }
+
+    PedidoService(PedidoRepository pedidoRepository, MesaRepository mesaRepository,
+                  ProdutoRepository produtoRepository, ItemPedidoRepository itemPedidoRepository,
+                  PedidoMapper pedidoMapper, AutorizacaoMesa autorizacaoMesa, Clock relogio) {
+        this.relogio = relogio;
         this.pedidoRepository = pedidoRepository;
         this.mesaRepository = mesaRepository;
         this.produtoRepository = produtoRepository;
@@ -346,6 +357,10 @@ public class PedidoService {
 
         validarPedidoAtivoUnico(pedido);
 
+        if (pedido.getDataPagamentoUtc() != null) {
+            throw new ConflitoException("Pedido pendente ja possui data de pagamento. Revise a inconsistencia.");
+        }
+        pedido.setDataPagamentoUtc(LocalDateTime.ofInstant(relogio.instant(), ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS));
         pedido.setStatus(StatusPedido.FINALIZADO);
 
         Mesa mesa = pedido.getMesa();
@@ -419,8 +434,9 @@ public class PedidoService {
     // 6. Listar Pedidos Concluídos/Finalizados de uma data específica (Área do Arquivo do Caixa)
     @Transactional(readOnly = true)
     public List<PedidoResponseDTO> listarPedidosFinalizadosPorData(LocalDate data) {
-        LocalDateTime inicioDia = data.atStartOfDay();
-        LocalDateTime fimDia = data.plusDays(1).atStartOfDay();
+        var periodo = PeriodoRecebimento.doDia(data);
+        LocalDateTime inicioDia = periodo.inicioUtc();
+        LocalDateTime fimDia = periodo.fimUtc();
 
         return pedidoRepository.findFinalizadosNoPeriodo(inicioDia, fimDia).stream()
                 .map(pedidoMapper::toResponseDTO)
@@ -430,8 +446,9 @@ public class PedidoService {
     // 7. Obter a soma do faturamento total de pedidos concluídos em uma data específica
     @Transactional(readOnly = true)
     public BigDecimal obterFaturamentoPorData(LocalDate data) {
-        LocalDateTime inicioDia = data.atStartOfDay();
-        LocalDateTime fimDia = data.plusDays(1).atStartOfDay();
+        var periodo = PeriodoRecebimento.doDia(data);
+        LocalDateTime inicioDia = periodo.inicioUtc();
+        LocalDateTime fimDia = periodo.fimUtc();
 
         return pedidoRepository.somarFaturamentoRecebidoNoPeriodo(inicioDia, fimDia);
     }

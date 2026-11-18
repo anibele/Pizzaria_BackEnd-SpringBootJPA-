@@ -42,7 +42,8 @@ public class DashboardService {
         LocalDateTime inicioDia = dia.atStartOfDay();
         LocalDateTime fimDia = dia.plusDays(1).atStartOfDay();
 
-        var resumoFinanceiro = pedidoRepository.calcularResumoFinanceiro(inicioDia, fimDia);
+        var periodo = PeriodoRecebimento.doDia(dia);
+        var resumoFinanceiro = pedidoRepository.calcularResumoFinanceiro(periodo.inicioUtc(), periodo.fimUtc());
         BigDecimal faturamento = resumoFinanceiro.getFaturamento();
         if (faturamento == null) faturamento = BigDecimal.ZERO;
 
@@ -81,9 +82,8 @@ public class DashboardService {
     @Transactional(readOnly = true)
     public List<PagamentoDTO> obterPagamentosDoDia() {
         LocalDate dia = LocalDate.now(relogio.withZone(FUSO_FINANCEIRO));
-        LocalDateTime inicioDia = dia.atStartOfDay();
-        LocalDateTime fimDia = dia.plusDays(1).atStartOfDay();
-        return pedidoRepository.agruparPorFormaPagamento(inicioDia, fimDia);
+        var periodo = PeriodoRecebimento.doDia(dia);
+        return pedidoRepository.agruparPorFormaPagamento(periodo.inicioUtc(), periodo.fimUtc());
     }
 
     public DashboardRankingsDTO obterRankings() {

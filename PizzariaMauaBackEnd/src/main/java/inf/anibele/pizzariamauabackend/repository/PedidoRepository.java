@@ -43,10 +43,10 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     }
 
     // O fluxo atual somente atribui FINALIZADO apos confirmar recebimento.
-    // dataHora ainda e a abertura: classificacao por recebimento depende de migracao.
+    // Historicos sem data conhecida ficam fora dos periodos, sem fallback para abertura.
     String RECEBIDOS_NO_PERIODO = "FROM Pedido p WHERE p.status = "
             + "inf.anibele.pizzariamauabackend.model.StatusPedido.FINALIZADO "
-            + "AND p.dataHora >= :inicioDia AND p.dataHora < :fimDia";
+            + "AND p.dataPagamentoUtc >= :inicioDia AND p.dataPagamentoUtc < :fimDia";
 
     interface ResumoFinanceiro {
         BigDecimal getFaturamento();

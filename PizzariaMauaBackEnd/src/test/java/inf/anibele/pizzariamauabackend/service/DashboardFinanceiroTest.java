@@ -34,7 +34,7 @@ class DashboardFinanceiroTest {
             when(p.calcularResumoFinanceiro(any(),any())).thenReturn(resumo);when(resumo.getFaturamento()).thenReturn(BigDecimal.ZERO);when(resumo.getQuantidade()).thenReturn(0L);
             when(p.contarPedidosDoDia(any(),any())).thenReturn(0L);
             var service=new DashboardService(p,i,Clock.fixed(Instant.parse(instante),ZoneOffset.UTC));service.obterResumoDoDia();service.obterPagamentosDoDia();
-            var dia=LocalDate.parse(data);verify(p).calcularResumoFinanceiro(dia.atStartOfDay(),dia.plusDays(1).atStartOfDay());verify(p).agruparPorFormaPagamento(dia.atStartOfDay(),dia.plusDays(1).atStartOfDay());
+            var dia=LocalDate.parse(data);verify(p).calcularResumoFinanceiro(dia.atTime(3,0),dia.plusDays(1).atTime(3,0));verify(p).agruparPorFormaPagamento(dia.atTime(3,0),dia.plusDays(1).atTime(3,0));
         }finally{TimeZone.setDefault(anterior);}
     }
     @Test void contratoJsonPreservadoEFormaAusenteNaoViraDinheiro() throws Exception {

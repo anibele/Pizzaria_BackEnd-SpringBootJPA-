@@ -1,5 +1,19 @@
 # Fase 5A — Faturamento recebido e limites dos dados financeiros
 
+## D23 implementado após migração autorizada
+
+A coluna aprovada foi aplicada e auditada antes desta implementação, sem backfill. `Pedido.dataPagamentoUtc` mapeia o DATETIME(6) nullable. Na confirmação efetiva, o Service usa Clock UTC, trunca a microssegundos e grava a data na mesma transação que finaliza o pedido e libera a mesa. Locks Mesa → Pedido e READ COMMITTED permanecem. Repetição continua sendo rejeitada; uma data já existente não é sobrescrita. Rollback reverte também o timestamp.
+
+`/api/dashboard/resumo`, `/api/dashboard/pagamentos`, `/pedidos/faturamento` e `/pedidos/finalizados` agora utilizam a data efetiva de recebimento nos seus filtros financeiros. `PeriodoRecebimento` converte cada início de dia em America/Sao_Paulo para UTC, com fim exclusivo. Não há conversão global JDBC/Hibernate que reinterprete os campos antigos; o novo LocalDateTime representa explicitamente o valor civil UTC do DATETIME, sem offset embutido.
+
+**Os pedidos históricos FINALIZADOS sem data continuam NULL e não aparecem artificialmente em nenhum dia de recebimento.** O dashboard diário pode apresentar zero até ocorrerem novos recebimentos. Seus valores persistidos continuam fazendo parte do total histórico de pedidos pagos; não há endpoint de total acumulado nem de histórico sem data no contrato atual, e nenhum foi inventado nesta alteração. Uma futura apresentação desses históricos deverá identificá-los como período desconhecido. Não usar abertura como fallback.
+
+Consultas operacionais de demanda, bebidas e preparo continuam por abertura/inclusão. URLs, permissões, DTOs e formatos de sucesso foram preservados; o campo de abertura `dataHora` na resposta continua sendo abertura. O frontend não foi alterado. A mudança dos relatórios diários é semântica e intencional: recebimentos do dia em vez de pedidos abertos naquele dia.
+
+Validação direcionada desta implementação: 75 testes aprovados (37 financeiros MySQL, 9 de resumo/contrato/timezone e 29 do PedidoService), zero falhas/erros/ignorados. Foram acrescentados nove casos MySQL e adaptadas as fixtures anteriores para representar recebimentos conhecidos; o caso de histórico NULL continua explícito. A regressão consolidada será executada após a correção do ranking.
+
+Os documentos abaixo e o plano preservam o registro das etapas anteriores de preparação; suas indicações de pendência descrevem aquele estado, superado pela migração autorizada e implementação acima. Não reaplicar o SQL de proposta no banco original.
+
 ## Revisão da migração — Fase 5A.2
 
 O [plano de migração e recuperação](PLANO_MIGRACAO.md) detalha a semântica UTC, preservação do histórico, verificação de reexecução, implantação gradual e ensaio A–J com MySQL 8.0.42. A proposta SQL original foi preservada. O executor específico é `scripts/testar_data_pagamento_mysql.py`; ele cria apenas servidores e dados sintéticos, sem aceitar a conexão do banco de trabalho. A aplicação no original continua reservada à Fase 5A.3 e a implementação Java à Fase 5A.4.

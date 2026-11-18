@@ -22,6 +22,10 @@ public class Pedido {
 
     private String formaPagamento;
 
+    // UTC por convencao: DATETIME nao armazena timezone. Historico desconhecido e NULL.
+    @Column(name = "data_pagamento_utc")
+    private LocalDateTime dataPagamentoUtc;
+
     private BigDecimal faturamento;
 
     @Enumerated(EnumType.STRING)

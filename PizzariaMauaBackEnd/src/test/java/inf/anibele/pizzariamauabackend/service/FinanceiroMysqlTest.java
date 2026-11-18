@@ -59,14 +59,14 @@ class FinanceiroMysqlTest {
     }
     private Pedido pedido(StatusPedido status,LocalDateTime data,String forma,String... precos) {
         var m=new Mesa();m.setNumero(++numero);m.setAtivo(true);m.setStatus(status==StatusPedido.ABERTO || status==StatusPedido.AGUARDANDO_PAGAMENTO?StatusMesa.OCUPADA:StatusMesa.LIVRE);m=mesas.save(m);
-        var p=new Pedido();p.setMesa(m);p.setDataHora(data);p.setStatus(status);p.setFormaPagamento(forma);p.setItens(new ArrayList<>());p.setFaturamento(BigDecimal.ZERO);
+        var p=new Pedido();p.setMesa(m);p.setDataHora(data);p.setStatus(status);p.setFormaPagamento(forma);if(status==StatusPedido.FINALIZADO && data!=null)p.setDataPagamentoUtc(data.plusHours(3));p.setItens(new ArrayList<>());p.setFaturamento(BigDecimal.ZERO);
         for(String preco:precos){var pr=new Produto();pr.setNome("Produto "+numero+"-"+p.getItens().size());pr.setPrecoBase(new BigDecimal(preco));pr.setCategoria(Categoria.PIZZAS);pr.setAtivo(true);pr.setQtdEstoque(50);pr.setDescricao(new DetalhesDescricao());pr=produtos.save(pr);
             var item=new ItemPedido();item.setPedido(p);item.setProduto(pr);item.setQuantidade(1);item.setPrecoUnitario(pr.getPrecoBase());item.setStatus(StatusItemPedido.PENDENTE);p.getItens().add(item);p.setFaturamento(p.getFaturamento().add(pr.getPrecoBase()));}
         return pedidos.saveAndFlush(p);
     }
     private Pedido pedido(StatusPedido s,String forma,String... valores){return pedido(s,DIA.atTime(12,0),forma,valores);}
     private void valor(String esperado,BigDecimal observado){assertEquals(0,new BigDecimal(esperado).compareTo(observado));}
-    private PedidoRepository.ResumoFinanceiro resumo(LocalDate dia){return pedidos.calcularResumoFinanceiro(dia.atStartOfDay(),dia.plusDays(1).atStartOfDay());}
+    private PedidoRepository.ResumoFinanceiro resumo(LocalDate dia){return pedidos.calcularResumoFinanceiro(dia.atTime(3,0),dia.plusDays(1).atTime(3,0));}
     @ParameterizedTest @EnumSource(StatusPedido.class)
     void elegibilidadePorEstado(StatusPedido status) throws Exception {
         pedido(status,"PIX","10.25");String before=snapshot();var r=dashboard.obterResumoDoDia();valor(status==StatusPedido.FINALIZADO?"10.25":"0",r.faturamento());valor(status==StatusPedido.FINALIZADO?"10.25":"0",r.ticketMedio());
@@ -112,9 +112,9 @@ class FinanceiroMysqlTest {
     void formaInvalida400SemAlteracao(String forma) throws Exception {
         var p=pedido(StatusPedido.ABERTO,(String)null,"10.00");String before=snapshot();var ex=assertThrows(org.springframework.web.server.ResponseStatusException.class,()->service.finalizarPedido(p.getId(),forma));assertEquals(400,ex.getStatusCode().value());assertEquals(before,snapshot());
     }
-    @Test void pagamentoNoDiaSeguintePermaneceLimitadoADataDeAbertura() {
+    @Test void pagamentoNoDiaSeguinteUsaRecebimentoPreservandoAbertura() {
         var ontem=DIA.minusDays(1).atTime(23,40);var p=pedido(StatusPedido.AGUARDANDO_PAGAMENTO,ontem,"PIX","10.25");service.confirmarPagamentoEFecharMesa(p.getId());
-        valor("0",resumo(DIA).getFaturamento());valor("10.25",resumo(DIA.minusDays(1)).getFaturamento());assertEquals(ontem,pedidos.findById(p.getId()).orElseThrow().getDataHora()); // Limite D23, nao data de recebimento.
+        valor("10.25",resumo(DIA).getFaturamento());valor("0",resumo(DIA.minusDays(1)).getFaturamento());assertEquals(ontem,pedidos.findById(p.getId()).orElseThrow().getDataHora()); // Recebimento independe da abertura.
     }
     @Test void leituraNaoVePagamentoNaoConfirmadoNoCommit() throws Exception {
         var p=pedido(StatusPedido.AGUARDANDO_PAGAMENTO,"PIX","12.34");var escrito=new CountDownLatch(1);var liberar=new CountDownLatch(1);var pool=Executors.newSingleThreadExecutor();
@@ -133,7 +133,8 @@ class FinanceiroMysqlTest {
         mvc.perform(get("/pedidos/finalizados").param("data",DIA.toString())).andExpect(status().isOk()).andExpect(jsonPath("$[0].status").value("FINALIZADO"));
     }
     @Test void propostaDeDataNullableNaoFabricaHistorico() throws Exception {
-        pedido(StatusPedido.FINALIZADO,"PIX","9.99");String before=snapshot();
+        pedido(StatusPedido.FINALIZADO,"PIX","9.99");jdbc.update("update pedido set data_pagamento_utc=null");String before=snapshot();
+        jdbc.execute("alter table pedido drop column data_pagamento_utc");
         String ddl=Files.readString(Path.of("..","Dados_SQL","fase5a","proposta_data_pagamento.sql"));
         jdbc.execute(ddl);
         try {
@@ -142,13 +143,57 @@ class FinanceiroMysqlTest {
             assertNull(jdbc.queryForObject("select column_default from information_schema.columns where table_schema=database() and table_name='pedido' and column_name='data_pagamento_utc'",String.class));
             // Valida o modelo atual mesmo com coluna extra ainda nao mapeada.
             var validation=Config.factory(ds,"validate");validation.afterPropertiesSet();validation.destroy();
-        }finally{jdbc.execute("alter table pedido drop column data_pagamento_utc");}
+        }finally{ /* Coluna migrada continua mapeada. */ }
         assertEquals(before,snapshot());
+    }
+    @Test void confirmacaoRegistraUtcComMicrosSemSobrescrever() throws Exception {
+        var p=pedido(StatusPedido.AGUARDANDO_PAGAMENTO,"PIX","15.25");
+        assertNull(pedidos.findById(p.getId()).orElseThrow().getDataPagamentoUtc());
+        service.confirmarPagamentoEFecharMesa(p.getId());
+        var pago=pedidos.findById(p.getId()).orElseThrow();
+        assertEquals(LocalDateTime.of(2026,11,17,15,0,0,123456000),pago.getDataPagamentoUtc());
+        try(var c=ds.getConnection();var st=c.createStatement()) {
+            st.execute("set time_zone='+09:00'");
+            try(var r=st.executeQuery("select data_pagamento_utc from pedido where id="+p.getId())) {
+                assertTrue(r.next());assertEquals(pago.getDataPagamentoUtc(),r.getObject(1,LocalDateTime.class));
+            }
+        }
+        String antes=snapshot();assertThrows(ConflitoException.class,()->service.confirmarPagamentoEFecharMesa(p.getId()));assertEquals(antes,snapshot());
+    }
+    @ParameterizedTest @EnumSource(value=StatusPedido.class,names={"ABERTO","CANCELADO"})
+    void confirmacaoRejeitadaNaoDataNemModifica(StatusPedido status) throws Exception {
+        var p=pedido(status,"PIX","1.25");String antes=snapshot();
+        assertThrows(ConflitoException.class,()->service.confirmarPagamentoEFecharMesa(p.getId()));
+        assertNull(pedidos.findById(p.getId()).orElseThrow().getDataPagamentoUtc());assertEquals(antes,snapshot());
+    }
+    @Test void rollbackAposFlushReverteTimestampFinalizacaoEMesa() throws Exception {
+        var p=pedido(StatusPedido.AGUARDANDO_PAGAMENTO,"PIX","2.25");String antes=snapshot();
+        var tx=new TransactionTemplate(tm);tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        assertThrows(ConflitoException.class,()->tx.executeWithoutResult(st->{service.confirmarPagamentoEFecharMesa(p.getId());em.flush();throw new ConflitoException("Falha controlada");}));
+        assertEquals(antes,snapshot());assertNull(pedidos.findById(p.getId()).orElseThrow().getDataPagamentoUtc());
+    }
+    @Test void pendenteComDataInconsistenteNaoSobrescreve() throws Exception {
+        var p=pedido(StatusPedido.AGUARDANDO_PAGAMENTO,"PIX","2.25");
+        jdbc.update("update pedido set data_pagamento_utc='2026-11-16 10:00:00.111111' where id=?",p.getId());
+        String antes=snapshot();assertThrows(ConflitoException.class,()->service.confirmarPagamentoEFecharMesa(p.getId()));assertEquals(antes,snapshot());
+    }
+    @Test void historicoPagoSemDataPreservadoForaDosPeriodos() throws Exception {
+        var p=pedido(StatusPedido.FINALIZADO,"PIX","12.34");jdbc.update("update pedido set data_pagamento_utc=null where id=?",p.getId());
+        String antes=snapshot();valor("0",dashboard.obterResumoDoDia().faturamento());assertTrue(service.listarPedidosFinalizadosPorData(DIA).isEmpty());assertTrue(dashboard.obterPagamentosDoDia().isEmpty());
+        valor("12.34",jdbc.queryForObject("select sum(faturamento) from pedido where status='FINALIZADO'",BigDecimal.class));assertEquals(antes,snapshot());
+    }
+    @ParameterizedTest @ValueSource(strings={"2026-11-18","2026-12-01","2027-01-01"})
+    void recebimentoNoLimiteCivilIndependeDaAbertura(String proximo) {
+        var dia=LocalDate.parse(proximo).minusDays(1);var periodo=PeriodoRecebimento.doDia(dia);
+        var datas=List.of(periodo.inicioUtc().minusNanos(1000),periodo.inicioUtc(),periodo.fimUtc().minusNanos(1000),periodo.fimUtc());
+        for(int n=0;n<4;n++) {var p=pedido(StatusPedido.FINALIZADO,dia.minusDays(5).atTime(12,0),"PIX","1.25");jdbc.update("update pedido set data_pagamento_utc=? where id=?",datas.get(n),p.getId());}
+        valor("2.50",service.obterFaturamentoPorData(dia));assertEquals(2,service.listarPedidosFinalizadosPorData(dia).size());
+        valor("1.25",service.obterFaturamentoPorData(dia.plusDays(1)));valor("1.25",service.obterFaturamentoPorData(dia.minusDays(1)));
     }
     private static void aguardar(CountDownLatch l){try{if(!l.await(10,TimeUnit.SECONDS))throw new IllegalStateException("Timeout");}catch(InterruptedException e){Thread.currentThread().interrupt();throw new IllegalStateException(e);}}
     private String snapshot() throws Exception {
         var digest=MessageDigest.getInstance("SHA-256");
-        for(String t:List.of("usuario","mesa","pedido","produto","item_pedido","idempotencia_adicao","produto_ingredientes"))for(var row:jdbc.queryForList("select * from "+t+" order by "+(t.equals("produto_ingredientes")?"produto_id,ingrediente":"id")))for(var v:row.values()){
+        for(String t:List.of("usuario","mesa","pedido","produto","item_pedido","idempotencia_adicao","produto_ingredientes"))for(var row:jdbc.queryForList("select * from "+t+" order by "+(t.equals("produto_ingredientes")?"produto_id,ingrediente":"id")))for(var v:new TreeMap<>(row).values()){
             String text=v instanceof byte[] bytes?HexFormat.of().formatHex(bytes):String.valueOf(v);digest.update((text.length()+":"+text).getBytes(java.nio.charset.StandardCharsets.UTF_8));}
         return HexFormat.of().formatHex(digest.digest());
     }
@@ -164,7 +209,7 @@ class FinanceiroMysqlTest {
         }
         @Bean PlatformTransactionManager transactionManager(EntityManagerFactory emf){return new JpaTransactionManager(emf);}
         @Bean JsonMapper jsonMapper(){return JsonMapper.builder().findAndAddModules().build();}
-        @Bean PedidoService pedidoService(PedidoRepository p,MesaRepository m,ProdutoRepository pr,ItemPedidoRepository i){return new PedidoService(p,m,pr,i,new PedidoMapper(new ItemPedidoMapper()),mock(AutorizacaoMesa.class));}
+        @Bean PedidoService pedidoService(PedidoRepository p,MesaRepository m,ProdutoRepository pr,ItemPedidoRepository i){return new PedidoService(p,m,pr,i,new PedidoMapper(new ItemPedidoMapper()),mock(AutorizacaoMesa.class),Clock.fixed(Instant.parse("2026-11-17T15:00:00.123456789Z"),ZoneOffset.UTC));}
         @Bean DashboardService dashboardService(PedidoRepository p,ItemPedidoRepository i){return new DashboardService(p,i,Clock.fixed(Instant.parse("2026-11-17T15:00:00Z"),ZoneOffset.UTC));}
     }
 }
