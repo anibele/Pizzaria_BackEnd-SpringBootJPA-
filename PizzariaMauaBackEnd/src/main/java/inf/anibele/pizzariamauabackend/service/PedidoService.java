@@ -23,7 +23,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.security.MessageDigest;
 import java.util.UUID;
@@ -35,6 +34,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
@@ -319,9 +320,13 @@ public class PedidoService {
 
         validarPedidoAtivoUnico(pedido);
 
+        if (formaPagamento == null || !Set.of("PIX", "CARTAO", "DINHEIRO")
+                .contains(formaPagamento.strip().toUpperCase(Locale.ROOT))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe uma forma de pagamento valida: PIX, CARTAO ou DINHEIRO.");
+        }
         // Muda apenas o pedido para AGUARDANDO_PAGAMENTO. A mesa continua OCUPADA!
         pedido.setStatus(StatusPedido.AGUARDANDO_PAGAMENTO);
-        pedido.setFormaPagamento(formaPagamento);
+        pedido.setFormaPagamento(formaPagamento.strip().toUpperCase(Locale.ROOT));
 
         pedido = pedidoRepository.save(pedido);
         return pedidoMapper.toResponseDTO(pedido);
@@ -412,21 +417,23 @@ public class PedidoService {
     }
 
     // 6. Listar Pedidos Concluídos/Finalizados de uma data específica (Área do Arquivo do Caixa)
+    @Transactional(readOnly = true)
     public List<PedidoResponseDTO> listarPedidosFinalizadosPorData(LocalDate data) {
         LocalDateTime inicioDia = data.atStartOfDay();
-        LocalDateTime fimDia = data.atTime(LocalTime.MAX);
+        LocalDateTime fimDia = data.plusDays(1).atStartOfDay();
 
-        return pedidoRepository.findByStatusAndDataHoraBetween(StatusPedido.FINALIZADO, inicioDia, fimDia).stream()
+        return pedidoRepository.findFinalizadosNoPeriodo(inicioDia, fimDia).stream()
                 .map(pedidoMapper::toResponseDTO)
                 .collect(Collectors.toList());
     }
 
     // 7. Obter a soma do faturamento total de pedidos concluídos em uma data específica
+    @Transactional(readOnly = true)
     public BigDecimal obterFaturamentoPorData(LocalDate data) {
         LocalDateTime inicioDia = data.atStartOfDay();
-        LocalDateTime fimDia = data.atTime(LocalTime.MAX);
+        LocalDateTime fimDia = data.plusDays(1).atStartOfDay();
 
-        return pedidoRepository.sumFaturamentoFinalizadoByDataHoraBetween(inicioDia, fimDia);
+        return pedidoRepository.somarFaturamentoRecebidoNoPeriodo(inicioDia, fimDia);
     }
 
 }

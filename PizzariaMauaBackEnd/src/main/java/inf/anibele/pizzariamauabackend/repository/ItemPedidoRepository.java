@@ -32,13 +32,13 @@ public interface ItemPedidoRepository extends JpaRepository<ItemPedido, Long> {
 
     // Conta quantos pedidos no dia possuem pelo menos 1 item cuja categoria seja 'BEBIDA'
     @Query("SELECT COUNT(DISTINCT p.id) FROM ItemPedido ip JOIN ip.pedido p JOIN ip.produto pr " +
-            "WHERE p.dataHora BETWEEN :inicioDia AND :fimDia AND p.status != 'CANCELADO' " +
+            "WHERE p.dataHora >= :inicioDia AND p.dataHora < :fimDia AND p.status != 'CANCELADO' " +
             "AND pr.categoria = 'BEBIDAS'")
     Long contarPedidosComBebida(@Param("inicioDia") LocalDateTime inicioDia, @Param("fimDia") LocalDateTime fimDia);
 
     // 1. CALCULA O TEMPO MÉDIO REAL DE COZINHA DO DIA (em minutos)
     @Query(value = "SELECT COALESCE(AVG(TIMESTAMPDIFF(MINUTE, data_hora_inclusao, data_hora_conclusao)), 0) " +
-            "FROM item_pedido WHERE data_hora_inclusao BETWEEN :inicioDia AND :fimDia " +
+            "FROM item_pedido WHERE data_hora_inclusao >= :inicioDia AND data_hora_inclusao < :fimDia " +
             "AND data_hora_conclusao IS NOT NULL", nativeQuery = true)
     Long calcularTempoMedioCozinhaDoDia(@Param("inicioDia") LocalDateTime inicioDia, @Param("fimDia") LocalDateTime fimDia);
 

@@ -42,28 +42,39 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
                 List.of(StatusPedido.ABERTO, StatusPedido.AGUARDANDO_PAGAMENTO));
     }
 
-    // Busca todos os pedidos de um determinado status dentro de um intervalo de tempo (início ao fim do dia)
-    List<Pedido> findByStatusAndDataHoraBetween(StatusPedido status, LocalDateTime start, LocalDateTime end);
+    // O fluxo atual somente atribui FINALIZADO apos confirmar recebimento.
+    // dataHora ainda e a abertura: classificacao por recebimento depende de migracao.
+    String RECEBIDOS_NO_PERIODO = "FROM Pedido p WHERE p.status = "
+            + "inf.anibele.pizzariamauabackend.model.StatusPedido.FINALIZADO "
+            + "AND p.dataHora >= :inicioDia AND p.dataHora < :fimDia";
 
-    // Faz a soma do faturamento direto via banco de dados (o COALESCE garante que retorne 0 caso não haja vendas no dia)
-    @Query("SELECT COALESCE(SUM(p.faturamento), 0) FROM Pedido p " +
-            "WHERE p.status = inf.anibele.pizzariamauabackend.model.StatusPedido.FINALIZADO " +
-            "AND p.dataHora BETWEEN :start AND :end")
-    BigDecimal sumFaturamentoFinalizadoByDataHoraBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    interface ResumoFinanceiro {
+        BigDecimal getFaturamento();
+        Long getQuantidade();
+    }
 
-    // --- MÉTricas de Resumo ---
+    // Numerador e denominador do ticket pertencem ao mesmo SELECT/snapshot.
+    @Query("SELECT COALESCE(SUM(p.faturamento), 0) AS faturamento, COUNT(p) AS quantidade " + RECEBIDOS_NO_PERIODO)
+    ResumoFinanceiro calcularResumoFinanceiro(@Param("inicioDia") LocalDateTime inicioDia,
+                                              @Param("fimDia") LocalDateTime fimDia);
 
-    @Query("SELECT SUM(p.faturamento) FROM Pedido p WHERE p.dataHora BETWEEN :inicioDia AND :fimDia AND p.status != 'CANCELADO'")
-    java.math.BigDecimal calcularFaturamentoDoDia(@Param("inicioDia") LocalDateTime inicioDia, @Param("fimDia") LocalDateTime fimDia);
+    @Query("SELECT COALESCE(SUM(p.faturamento), 0) " + RECEBIDOS_NO_PERIODO)
+    BigDecimal somarFaturamentoRecebidoNoPeriodo(@Param("inicioDia") LocalDateTime inicioDia,
+                                                @Param("fimDia") LocalDateTime fimDia);
 
-    @Query("SELECT COUNT(p) FROM Pedido p WHERE p.dataHora BETWEEN :inicioDia AND :fimDia AND p.status != 'CANCELADO'")
+    @Query("SELECT p " + RECEBIDOS_NO_PERIODO)
+    List<Pedido> findFinalizadosNoPeriodo(@Param("inicioDia") LocalDateTime inicioDia,
+                                         @Param("fimDia") LocalDateTime fimDia);
+
+    // Denominador operacional da taxa de bebidas: nao representa pedidos pagos.
+    @Query("SELECT COUNT(p) FROM Pedido p WHERE p.dataHora >= :inicioDia AND p.dataHora < :fimDia AND p.status != 'CANCELADO'")
     Long contarPedidosDoDia(@Param("inicioDia") LocalDateTime inicioDia, @Param("fimDia") LocalDateTime fimDia);
 
-    // Pressupõe que você tem uma propriedade de forma de pagamento Enum ou String no Pedido
-    @Query("SELECT new inf.anibele.pizzariamauabackend.dto.dashboarddto.PagamentoDTO(COALESCE(p.formaPagamento, 'DINHEIRO'), COUNT(p)) " +
-            "FROM Pedido p WHERE p.dataHora BETWEEN :inicioDia AND :fimDia AND p.status != 'CANCELADO' " +
-            "GROUP BY p.formaPagamento")
-    List<PagamentoDTO> agruparPorFormaPagamento(@Param("inicioDia") LocalDateTime inicioDia, @Param("fimDia") LocalDateTime fimDia);
+    // Ausencia permanece NULL; nunca inferir DINHEIRO de informacao ausente.
+    @Query("SELECT new inf.anibele.pizzariamauabackend.dto.dashboarddto.PagamentoDTO(p.formaPagamento, COUNT(p)) "
+            + RECEBIDOS_NO_PERIODO + " GROUP BY p.formaPagamento")
+    List<PagamentoDTO> agruparPorFormaPagamento(@Param("inicioDia") LocalDateTime inicioDia,
+                                               @Param("fimDia") LocalDateTime fimDia);
 
     // Query Nativa para extrair a HORA no MySQL/Postgres (Gráfico de Picos de Demanda)
     @Query(value = "SELECT EXTRACT(HOUR FROM data_hora) as hora, COUNT(*) as quantidadePedidos " +
