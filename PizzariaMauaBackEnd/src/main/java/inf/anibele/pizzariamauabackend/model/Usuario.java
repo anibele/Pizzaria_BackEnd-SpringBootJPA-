@@ -25,6 +25,9 @@ public class Usuario implements UserDetails {
     private String username;
 
     @Column(nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    @JsonIgnore
     private String senha;
 
     @Enumerated(EnumType.STRING)
@@ -49,6 +52,7 @@ public class Usuario implements UserDetails {
         return List.of(new SimpleGrantedAuthority(role.name()));
     }
 
+    @JsonIgnore
     @Override
     public String getPassword() {
         return this.senha;

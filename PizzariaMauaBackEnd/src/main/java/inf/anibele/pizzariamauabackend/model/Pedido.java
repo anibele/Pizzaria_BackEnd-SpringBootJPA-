@@ -1,13 +1,15 @@
 package inf.anibele.pizzariamauabackend.model;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
-@Data
+@Getter
+@Setter
 public class Pedido {
 
     @Id
@@ -33,4 +35,16 @@ public class Pedido {
 
     @OneToMany(mappedBy = "pedido", cascade = CascadeType.ALL)
     private List<ItemPedido> itens;
+    // Identidade persistida; nunca percorrer relacionamentos ou campos mutaveis.
+    @Override
+    public final boolean equals(Object other) {
+        if (this == other) return true;
+        return other instanceof Pedido entity && getId() != null && getId().equals(entity.getId());
+    }
+
+    @Override
+    public final int hashCode() { return Pedido.class.hashCode(); }
+
+    @Override
+    public final String toString() { return "Pedido(id=" + getId() + ")"; }
 }

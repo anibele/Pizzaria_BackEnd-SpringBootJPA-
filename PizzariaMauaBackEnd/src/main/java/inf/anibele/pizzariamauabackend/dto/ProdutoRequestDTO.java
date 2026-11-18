@@ -2,6 +2,7 @@ package inf.anibele.pizzariamauabackend.dto;
 
 import inf.anibele.pizzariamauabackend.model.Categoria;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -13,7 +14,8 @@ public record ProdutoRequestDTO(
         @Valid DetalhesDescricaoDTO descricao,
         @NotNull(message = "A categoria é obrigatória.") Categoria categoria,
         @NotNull(message = "O preço é obrigatório.")
-        @PositiveOrZero(message = "O preço não pode ser negativo.") BigDecimal precoBase,
+        @PositiveOrZero(message = "O preço não pode ser negativo.")
+        @Digits(integer = 36, fraction = 2, message = "Informe um preço com no máximo duas casas decimais e dentro do limite monetário.") BigDecimal precoBase,
         String imagemUrl,
         boolean ativo,
         @NotNull(message = "O estoque é obrigatório.")

@@ -126,6 +126,15 @@ class TokenServiceTest {
         var req=new MockHttpServletRequest();req.addHeader("Authorization","Bearer "+service.gerarToken(usuario(RoleName.MESA)));
         assertThrows(IllegalStateException.class,()->filtro(repository).doFilter(req,new MockHttpServletResponse(),new MockFilterChain()));
     }
+    @ParameterizedTest @ValueSource(strings={"exp","iat","nbf"})
+    void datasForaDoIntervaloSaoTokenInvalido(String claim) throws Exception {
+        var token=builder().withClaim(claim,Long.MAX_VALUE).sign(Algorithm.HMAC256("chave-sintetica-incorreta"));
+        assertThrows(com.auth0.jwt.exceptions.JWTVerificationException.class,()->service.getSubject(token));
+        var repository=mock(UsuarioRepository.class);var req=new MockHttpServletRequest();
+        req.addHeader("Authorization","Bearer "+token);var response=new MockHttpServletResponse();var chain=new MockFilterChain();
+        filtro(repository).doFilter(req,response,chain);
+        assertEquals(401,response.getStatus());assertNull(chain.getRequest());verifyNoInteractions(repository);
+    }
     private SecurityFilter filtro(UsuarioRepository r) {
         var f=new SecurityFilter();ReflectionTestUtils.setField(f,"tokenService",service);ReflectionTestUtils.setField(f,"repository",r);return f;
     }

@@ -190,6 +190,19 @@ class FinanceiroMysqlTest {
         valor("2.50",service.obterFaturamentoPorData(dia));assertEquals(2,service.listarPedidosFinalizadosPorData(dia).size());
         valor("1.25",service.obterFaturamentoPorData(dia.plusDays(1)));valor("1.25",service.obterFaturamentoPorData(dia.minusDays(1)));
     }
+    @Test void identidadeELogDeProxiesDestacadosNaoCarregamGrafo() {
+        var p=pedido(StatusPedido.ABERTO,(String)null,"10.25");
+        long itemId=jdbc.queryForObject("select id from item_pedido where pedido_id=?",Long.class,p.getId());
+        var tx=new TransactionTemplate(tm);
+        var referencias=tx.execute(st->new Object[]{em.getReference(Pedido.class,p.getId()),em.getReference(ItemPedido.class,itemId)});
+        var proxy=(Pedido)referencias[0];var itemProxy=(ItemPedido)referencias[1];
+        var detachedItem=new ItemPedido();detachedItem.setId(itemId);
+        assertFalse(org.hibernate.Hibernate.isInitialized(proxy));assertFalse(org.hibernate.Hibernate.isInitialized(itemProxy));
+        assertEquals(p,proxy);assertEquals(proxy,p);assertEquals(p.hashCode(),proxy.hashCode());
+        assertEquals(detachedItem,itemProxy);assertEquals(itemProxy,detachedItem);
+        assertEquals("Pedido(id="+p.getId()+")",proxy.toString());assertEquals("ItemPedido(id="+itemId+")",itemProxy.toString());
+        assertFalse(org.hibernate.Hibernate.isInitialized(proxy));assertFalse(org.hibernate.Hibernate.isInitialized(itemProxy));
+    }
     private static void aguardar(CountDownLatch l){try{if(!l.await(10,TimeUnit.SECONDS))throw new IllegalStateException("Timeout");}catch(InterruptedException e){Thread.currentThread().interrupt();throw new IllegalStateException(e);}}
     private String snapshot() throws Exception {
         var digest=MessageDigest.getInstance("SHA-256");

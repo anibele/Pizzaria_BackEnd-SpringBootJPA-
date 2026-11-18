@@ -20,6 +20,8 @@ class ConfiguracaoFase3BTest {
     @Test void configuracaoPadraoValidaSchemaSemAtivarDemo() throws Exception {
         var properties=ler("application.properties");
         assertEquals("validate",properties.getProperty("spring.jpa.hibernate.ddl-auto"));
+        assertEquals("${DB_USERNAME}",properties.getProperty("spring.datasource.username"));
+        assertEquals("${DB_PASSWORD}",properties.getProperty("spring.datasource.password"));
         assertNull(properties.getProperty("spring.profiles.active"));
         assertNull(properties.getProperty("spring.profiles.default"));
         assertEquals("${API_SECURITY_TOKEN_SECRET:}",properties.getProperty("api.security.token.secret"));

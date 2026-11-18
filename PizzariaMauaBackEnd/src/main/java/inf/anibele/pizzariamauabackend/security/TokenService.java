@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.util.Base64;
 
@@ -99,7 +100,7 @@ public class TokenService {
                 throw new JWTVerificationException("Claims inválidas.");
             }
             return token.getSubject();
-        } catch (JWTVerificationException | IllegalArgumentException exception) {
+        } catch (JWTVerificationException | IllegalArgumentException | DateTimeException exception) {
             throw new JWTVerificationException("Token JWT inválido ou expirado.");
         }
     }
