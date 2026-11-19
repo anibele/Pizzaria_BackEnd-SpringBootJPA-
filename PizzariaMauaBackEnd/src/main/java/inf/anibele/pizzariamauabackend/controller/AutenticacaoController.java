@@ -1,10 +1,14 @@
 package inf.anibele.pizzariamauabackend.controller;
 
 import inf.anibele.pizzariamauabackend.dto.DadosLoginDTO;
+import inf.anibele.pizzariamauabackend.dto.UsuarioAtualDTO;
 import inf.anibele.pizzariamauabackend.model.Usuario;
 import inf.anibele.pizzariamauabackend.security.TokenService;
+import inf.anibele.pizzariamauabackend.security.AutorizacaoMesa;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +23,9 @@ public class AutenticacaoController {
 
     @Autowired
     private TokenService tokenService;
+
+    @Autowired
+    private AutorizacaoMesa autorizacaoMesa;
 
     @PostMapping("/login")
     @CrossOrigin(origins = "*")
@@ -35,6 +42,13 @@ public class AutenticacaoController {
 
         // Devolvemos o token e as informações da pessoa
         return ResponseEntity.ok(new DadosRetornoLogin(tokenJWT, usuarioLogado.getUsername(), usuarioLogado.getRole().name()));
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<UsuarioAtualDTO> usuarioAtual(@AuthenticationPrincipal Usuario usuario) {
+        Integer numeroMesa = autorizacaoMesa.numeroMesaAutenticada();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new UsuarioAtualDTO(usuario.getUsername(), usuario.getRole(), numeroMesa));
     }
 
     // DTO interno só para devolver a resposta estruturada

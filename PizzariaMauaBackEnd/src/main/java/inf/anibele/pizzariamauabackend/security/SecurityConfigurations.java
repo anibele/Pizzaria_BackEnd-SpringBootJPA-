@@ -1,5 +1,7 @@
 package inf.anibele.pizzariamauabackend.security;
 
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.web.authentication.Http403ForbiddenEntryPoint;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -36,12 +38,22 @@ public class SecurityConfigurations {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, exception) -> {
+                    if ("GET".equals(request.getMethod())
+                            && (request.getContextPath() + "/auth/me").equals(request.getRequestURI())) {
+                        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    } else {
+                        // Preserva o entry point anterior das demais rotas, inclusive login.
+                        new Http403ForbiddenEntryPoint().commence(request, response, exception);
+                    }
+                }))
                 .authorizeHttpRequests(req -> {
                     // Libera requisições de teste (preflight) do navegador
                     req.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll();
 
                     // 1. ROTA PÚBLICA
                     req.requestMatchers(HttpMethod.POST, "/auth/login").permitAll();
+                    req.requestMatchers(HttpMethod.GET, "/auth/me").authenticated();
 
                     // 2. REGRAS DA COZINHA
                     req.requestMatchers(HttpMethod.GET, "/pedidos/cozinha").hasAnyAuthority("COZINHA", "GERENTE", "CAIXA");

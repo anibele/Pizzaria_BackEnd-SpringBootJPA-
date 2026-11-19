@@ -10,6 +10,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class AutorizacaoMesa {
 
+    public Integer numeroMesaAutenticada() {
+        Mesa mesa = mesaAutorizada();
+        return mesa == null ? null : mesa.getNumero();
+    }
+
     public void verificarVinculo() {
         mesaAutorizada();
     }
