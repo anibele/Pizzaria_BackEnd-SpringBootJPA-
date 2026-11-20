@@ -79,6 +79,7 @@ class EstadosPedidosJpaTest {
     }
     @Test void cicloCompletoBloqueiaNovaContaAteConfirmarPagamento() {
         var aberto=pedidosService.abrirPedido(requisicao(1));
+        pedidosService.atualizarStatusItem(aberto.itens().get(0).id(),StatusItemPedido.PRONTO);
         var aguardando=pedidosService.finalizarPedido(aberto.id(),"PIX");
         assertEquals(StatusPedido.AGUARDANDO_PAGAMENTO,aguardando.status());assertEquals("PIX",aguardando.formaPagamento());
         assertEquals(StatusMesa.OCUPADA,mesas.findById(mesa.getId()).orElseThrow().getStatus());
@@ -91,6 +92,46 @@ class EstadosPedidosJpaTest {
         var depois=snapshot();assertThrows(ConflitoException.class,()->pedidosService.confirmarPagamentoEFecharMesa(aberto.id()));assertEquals(depois,snapshot());
         assertNotEquals(aberto.id(),pedidosService.abrirPedido(requisicao(1)).id());
     }
+    static Stream<List<StatusItemPedido>> preparoPagamento() {
+        return Stream.of(List.of(), List.of(StatusItemPedido.PENDENTE),
+                List.of(StatusItemPedido.EM_PREPARO),
+                List.of(StatusItemPedido.PENDENTE,StatusItemPedido.PRONTO),
+                List.of(StatusItemPedido.EM_PREPARO,StatusItemPedido.PRONTO),
+                List.of(StatusItemPedido.PRONTO,StatusItemPedido.PRONTO));
+    }
+    @ParameterizedTest @MethodSource("preparoPagamento")
+    void pagamentoValidaItensAtuaisSemAlterarPedidoOuMesaNaRejeicao(List<StatusItemPedido> estados) {
+        mesa.setStatus(StatusMesa.OCUPADA);mesas.save(mesa);
+        var p=conta(StatusPedido.ABERTO);
+        new TransactionTemplate(tx).executeWithoutResult(t -> {
+            var atual=pedidos.findById(p.getId()).orElseThrow();
+            for (var status:estados) {
+                var item=new ItemPedido();item.setPedido(atual);item.setProduto(produto);
+                item.setQuantidade(1);item.setPrecoUnitario(produto.getPrecoBase());item.setStatus(status);
+                atual.getItens().add(item);
+            }
+            pedidos.saveAndFlush(atual);
+        });
+        boolean pronto=!estados.isEmpty() && estados.stream().allMatch(e->e==StatusItemPedido.PRONTO);
+        var antes=snapshot();
+        if (pronto) {
+            assertEquals(StatusPedido.AGUARDANDO_PAGAMENTO,pedidosService.finalizarPedido(p.getId(),"PIX").status());
+        } else {
+            assertThrows(ConflitoException.class,()->pedidosService.finalizarPedido(p.getId(),"PIX"));
+            assertEquals(antes,snapshot());
+            // Conta legada aguardando pagamento sem ter concluido o preparo.
+            p.setStatus(StatusPedido.AGUARDANDO_PAGAMENTO);pedidos.save(p);
+        }
+        antes=snapshot();
+        if (pronto) {
+            assertEquals(StatusPedido.FINALIZADO,pedidosService.confirmarPagamentoEFecharMesa(p.getId()).status());
+            assertEquals(StatusMesa.LIVRE,mesas.findById(mesa.getId()).orElseThrow().getStatus());
+        } else {
+            assertThrows(ConflitoException.class,()->pedidosService.confirmarPagamentoEFecharMesa(p.getId()));
+            assertEquals(antes,snapshot());
+        }
+    }
+
     @ParameterizedTest @EnumSource(value=StatusPedido.class,names={"ABERTO","AGUARDANDO_PAGAMENTO"})
     void consultaReconheceAmbosOsEstadosAtivos(StatusPedido status) {
         mesa.setStatus(StatusMesa.OCUPADA);mesas.save(mesa);var conta=conta(status);

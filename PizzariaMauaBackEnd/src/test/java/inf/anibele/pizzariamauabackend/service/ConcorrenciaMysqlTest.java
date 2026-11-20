@@ -102,15 +102,17 @@ class ConcorrenciaMysqlTest {
         assertEquals(7,saldo(a));assertEquals(9,saldo(b));assertEquals(3,jdbc.queryForObject("select count(*) from item_pedido",Integer.class));
     }
     @Test void E_adicaoVersusFechamento() throws Exception {
-        var p=abrir(1,a,2);
+        var p=abrir(1,a,2);service.atualizarStatusItem(p.itens().get(0).id(),StatusItemPedido.PRONTO);
         var r=concorrer("mesa",idMesa(1),List.of(()->service.adicionarItens(p.id(),itens(b,1)),()->service.finalizarPedido(p.id(),"PIX")));
-        assertTrue(sucessos(r)==1 || sucessos(r)==2);
-        var atual=pedidos.findById(p.id()).orElseThrow();assertEquals(StatusPedido.AGUARDANDO_PAGAMENTO,atual.getStatus());
-        assertEquals(sucessos(r)==2?new BigDecimal("130.00"):new BigDecimal("100.00"),atual.getFaturamento());
-        assertEquals(sucessos(r)==2?9:10,saldo(b));assertEquals(StatusMesa.OCUPADA,mesas.findByNumero(1).orElseThrow().getStatus());
+        assertEquals(1,sucessos(r));
+        var atual=pedidos.findById(p.id()).orElseThrow();
+        assertTrue(atual.getStatus()==StatusPedido.ABERTO || atual.getStatus()==StatusPedido.AGUARDANDO_PAGAMENTO);
+        boolean adicionou=atual.getStatus()==StatusPedido.ABERTO;
+        assertEquals(adicionou?new BigDecimal("130.00"):new BigDecimal("100.00"),atual.getFaturamento());
+        assertEquals(adicionou?9:10,saldo(b));assertEquals(StatusMesa.OCUPADA,mesas.findByNumero(1).orElseThrow().getStatus());
     }
     @Test void F_pagamentoSimultaneo() throws Exception {
-        var p=abrir(1,a,1);service.finalizarPedido(p.id(),"PIX");
+        var p=abrir(1,a,1);service.atualizarStatusItem(p.itens().get(0).id(),StatusItemPedido.PRONTO);service.finalizarPedido(p.id(),"PIX");
         var r=concorrer("mesa",idMesa(1),List.of(()->service.confirmarPagamentoEFecharMesa(p.id()),()->service.confirmarPagamentoEFecharMesa(p.id())));
         assertEquals(1,sucessos(r));assertEquals(StatusPedido.FINALIZADO,pedidos.findById(p.id()).orElseThrow().getStatus());
         assertEquals(StatusMesa.LIVRE,mesas.findByNumero(1).orElseThrow().getStatus());assertEquals(9,saldo(a));
@@ -152,7 +154,7 @@ class ConcorrenciaMysqlTest {
         }
         mesaService.atualizarStatus(1,StatusMesa.LIVRE);mesaService.alterarAtivacao(1,false);
         assertThrows(ConflitoException.class,()->abrir(1,a,1));mesaService.alterarAtivacao(1,true);
-        var p=abrir(1,a,1);service.finalizarPedido(p.id(),"PIX");var antes=snapshot();
+        var p=abrir(1,a,1);service.atualizarStatusItem(p.itens().get(0).id(),StatusItemPedido.PRONTO);service.finalizarPedido(p.id(),"PIX");var antes=snapshot();
         assertThrows(ConflitoException.class,()->abrir(1,a,1));assertEquals(antes,snapshot());
         assertThrows(ConflitoException.class,()->mesaService.atualizarStatus(1,StatusMesa.LIVRE));
         service.confirmarPagamentoEFecharMesa(p.id());assertEquals(StatusMesa.LIVRE,mesas.findByNumero(1).orElseThrow().getStatus());
@@ -274,10 +276,13 @@ class ConcorrenciaMysqlTest {
         assertEquals(0,sucessos(invalidas));assertEquals(antes,snapshot());
     }
     @Test void U_pagamentoVersusPreparoRespeitaEstadoAtual() throws Exception {
-        var p=abrir(1,a,1);long item=p.itens().get(0).id();service.finalizarPedido(p.id(),"PIX");
+        var p=abrir(1,a,1);long item=p.itens().get(0).id();
+        jdbc.update("update pedido set status='AGUARDANDO_PAGAMENTO' where id=?",p.id());
         var r=concorrer("mesa",idMesa(1),List.of(()->service.confirmarPagamentoEFecharMesa(p.id()),()->{service.atualizarStatusItem(item,StatusItemPedido.PRONTO);return "ok";}));
-        assertEquals(StatusPedido.FINALIZADO,pedidos.findById(p.id()).orElseThrow().getStatus());
-        assertEquals(sucessos(r)==2?"PRONTO":"PENDENTE",jdbc.queryForObject("select status from item_pedido where id=?",String.class,item));
+        assertTrue(sucessos(r)==1 || sucessos(r)==2);
+        assertEquals(sucessos(r)==2?StatusPedido.FINALIZADO:StatusPedido.AGUARDANDO_PAGAMENTO,pedidos.findById(p.id()).orElseThrow().getStatus());
+        assertEquals(sucessos(r)==2?StatusMesa.LIVRE:StatusMesa.OCUPADA,mesas.findByNumero(1).orElseThrow().getStatus());
+        assertEquals("PRONTO",jdbc.queryForObject("select status from item_pedido where id=?",String.class,item));
     }
     @ParameterizedTest @EnumSource(StatusPedido.class)
     void V_exclusaoComHistoricoPreservaDados(StatusPedido estado) throws Exception {

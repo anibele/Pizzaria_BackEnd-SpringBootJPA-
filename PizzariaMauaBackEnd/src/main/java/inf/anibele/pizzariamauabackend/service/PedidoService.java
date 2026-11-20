@@ -330,6 +330,7 @@ public class PedidoService {
         }
 
         validarPedidoAtivoUnico(pedido);
+        validarItensProntosParaPagamento(pedido);
 
         if (formaPagamento == null || !Set.of("PIX", "CARTAO", "DINHEIRO")
                 .contains(formaPagamento.strip().toUpperCase(Locale.ROOT))) {
@@ -356,6 +357,7 @@ public class PedidoService {
         }
 
         validarPedidoAtivoUnico(pedido);
+        validarItensProntosParaPagamento(pedido);
 
         if (pedido.getDataPagamentoUtc() != null) {
             throw new ConflitoException("Pedido pendente ja possui data de pagamento. Revise a inconsistencia.");
@@ -390,6 +392,14 @@ public class PedidoService {
         }
         validarMesaOcupada(pedidos.get(0).getMesa());
         return pedidoMapper.toResponseDTO(pedidos.get(0));
+    }
+
+    private void validarItensProntosParaPagamento(Pedido pedido) {
+        // Pedido recarregado sob os mesmos locks usados pela cozinha e pela adicao de itens.
+        if (pedido.getItens().isEmpty() || pedido.getItens().stream()
+                .anyMatch(item -> item.getStatus() != StatusItemPedido.PRONTO)) {
+            throw new ConflitoException("Não é possível realizar o pagamento enquanto houver itens em preparo.");
+        }
     }
 
     private void validarPedidoAtivoUnico(Pedido pedido) {

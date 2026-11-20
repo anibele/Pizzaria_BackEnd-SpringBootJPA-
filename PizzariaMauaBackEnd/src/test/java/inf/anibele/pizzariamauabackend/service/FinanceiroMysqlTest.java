@@ -61,7 +61,7 @@ class FinanceiroMysqlTest {
         var m=new Mesa();m.setNumero(++numero);m.setAtivo(true);m.setStatus(status==StatusPedido.ABERTO || status==StatusPedido.AGUARDANDO_PAGAMENTO?StatusMesa.OCUPADA:StatusMesa.LIVRE);m=mesas.save(m);
         var p=new Pedido();p.setMesa(m);p.setDataHora(data);p.setStatus(status);p.setFormaPagamento(forma);if(status==StatusPedido.FINALIZADO && data!=null)p.setDataPagamentoUtc(data.plusHours(3));p.setItens(new ArrayList<>());p.setFaturamento(BigDecimal.ZERO);
         for(String preco:precos){var pr=new Produto();pr.setNome("Produto "+numero+"-"+p.getItens().size());pr.setPrecoBase(new BigDecimal(preco));pr.setCategoria(Categoria.PIZZAS);pr.setAtivo(true);pr.setQtdEstoque(50);pr.setDescricao(new DetalhesDescricao());pr=produtos.save(pr);
-            var item=new ItemPedido();item.setPedido(p);item.setProduto(pr);item.setQuantidade(1);item.setPrecoUnitario(pr.getPrecoBase());item.setStatus(StatusItemPedido.PENDENTE);p.getItens().add(item);p.setFaturamento(p.getFaturamento().add(pr.getPrecoBase()));}
+            var item=new ItemPedido();item.setPedido(p);item.setProduto(pr);item.setQuantidade(1);item.setPrecoUnitario(pr.getPrecoBase());item.setStatus(StatusItemPedido.PRONTO);p.getItens().add(item);p.setFaturamento(p.getFaturamento().add(pr.getPrecoBase()));}
         return pedidos.saveAndFlush(p);
     }
     private Pedido pedido(StatusPedido s,String forma,String... valores){return pedido(s,DIA.atTime(12,0),forma,valores);}
